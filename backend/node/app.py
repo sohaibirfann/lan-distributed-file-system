@@ -11,6 +11,7 @@ from node.chunks import (
     InsufficientCapacity,
     InvalidChunkId,
     delete_chunk,
+    list_chunk_ids,
     retrieve_chunk,
     store_chunk,
 )
@@ -48,6 +49,11 @@ app = FastAPI(lifespan=lifespan)
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/chunks")
+def list_chunks(request: Request) -> list[str]:
+    return list_chunk_ids(request.app.state.config)
 
 
 @app.put("/chunks/{chunk_id}")

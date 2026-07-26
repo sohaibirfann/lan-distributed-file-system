@@ -74,6 +74,16 @@ def retrieve_chunk(config: NodeConfig, chunk_id: str) -> bytes | None:
     return path.read_bytes()
 
 
+def list_chunk_ids(config: NodeConfig) -> list[str]:
+    # Non-chunk files (e.g. stray temp files) are silently skipped rather
+    # than surfaced as bogus inventory entries.
+    return [
+        entry.name
+        for entry in config.storage_directory.iterdir()
+        if entry.is_file() and CHUNK_ID_PATTERN.fullmatch(entry.name)
+    ]
+
+
 def delete_chunk(config: NodeConfig, chunk_id: str) -> None:
     # Idempotent: deleting an already-gone (or never-stored) chunk is success,
     # not an error — matches the immutable, content-addressed model where

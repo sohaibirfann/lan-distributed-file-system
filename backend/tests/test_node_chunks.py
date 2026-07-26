@@ -7,6 +7,7 @@ from node.chunks import (
     InsufficientCapacity,
     InvalidChunkId,
     delete_chunk,
+    list_chunk_ids,
     retrieve_chunk,
     store_chunk,
 )
@@ -181,6 +182,35 @@ def test_delete_rejects_invalid_chunk_id(tmp_path):
 
     with pytest.raises(InvalidChunkId):
         delete_chunk(config, "../../etc/passwd")
+
+
+def test_list_chunk_ids_returns_stored_chunks(tmp_path):
+    storage_dir = tmp_path / "storage"
+    storage_dir.mkdir()
+    config = make_config(storage_dir)
+    a = b"first chunk"
+    b = b"second chunk"
+    store_chunk(config, chunk_id_for(a), a)
+    store_chunk(config, chunk_id_for(b), b)
+
+    assert sorted(list_chunk_ids(config)) == sorted([chunk_id_for(a), chunk_id_for(b)])
+
+
+def test_list_chunk_ids_ignores_non_chunk_files(tmp_path):
+    storage_dir = tmp_path / "storage"
+    storage_dir.mkdir()
+    config = make_config(storage_dir)
+    (storage_dir / "not-a-chunk.tmp").write_bytes(b"stray file")
+
+    assert list_chunk_ids(config) == []
+
+
+def test_list_chunk_ids_empty_when_nothing_stored(tmp_path):
+    storage_dir = tmp_path / "storage"
+    storage_dir.mkdir()
+    config = make_config(storage_dir)
+
+    assert list_chunk_ids(config) == []
 
 
 def test_delete_frees_up_capacity_for_reuse(tmp_path):

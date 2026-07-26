@@ -93,6 +93,20 @@ def test_delete_invalid_chunk_id_is_422(tmp_path, monkeypatch):
         assert c.delete("/chunks/not-a-valid-hash").status_code == 422
 
 
+def test_list_chunks_reflects_stored_and_deleted_chunks(tmp_path, monkeypatch):
+    with _client(tmp_path, monkeypatch) as c:
+        data = b"ciphertext bytes here"
+        chunk_id = chunk_id_for(data)
+
+        assert c.get("/chunks").json() == []
+
+        c.put(f"/chunks/{chunk_id}", content=data)
+        assert c.get("/chunks").json() == [chunk_id]
+
+        c.delete(f"/chunks/{chunk_id}")
+        assert c.get("/chunks").json() == []
+
+
 def test_upload_over_max_size_without_content_length_is_still_413(tmp_path, monkeypatch):
     # A streamed body has no Content-Length header, so this only passes if
     # the post-read size check (not just the pre-read one) actually works.
