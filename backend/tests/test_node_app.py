@@ -55,6 +55,55 @@ def test_invalid_capacity_budget_fails_startup(tmp_path, monkeypatch, capacity):
             pass
 
 
+def test_heartbeat_interval_defaults_to_ten_seconds(tmp_path, monkeypatch):
+    from node.config import load_config
+
+    monkeypatch.setenv("STORAGE_DIRECTORY", str(tmp_path / "storage"))
+    monkeypatch.setenv("CAPACITY_BUDGET_GB", "10")
+    monkeypatch.setenv("COORDINATOR_ADDRESS", "http://coordinator.invalid")
+    monkeypatch.setenv("NODE_ADDRESS", "node.invalid:9000")
+    monkeypatch.setenv("OWNER_USERNAME", "alice")
+    monkeypatch.setenv("OWNER_PASSWORD", "hunter22")
+    monkeypatch.delenv("HEARTBEAT_INTERVAL_SECONDS", raising=False)
+
+    assert load_config().heartbeat_interval_seconds == 10
+
+
+@pytest.mark.parametrize("value", ["0", "-1", "abc"])
+def test_invalid_heartbeat_interval_fails_startup(tmp_path, monkeypatch, value):
+    monkeypatch.setenv("STORAGE_DIRECTORY", str(tmp_path / "storage"))
+    monkeypatch.setenv("CAPACITY_BUDGET_GB", "10")
+    monkeypatch.setenv("COORDINATOR_ADDRESS", "http://coordinator.invalid")
+    monkeypatch.setenv("NODE_ADDRESS", "node.invalid:9000")
+    monkeypatch.setenv("OWNER_USERNAME", "alice")
+    monkeypatch.setenv("OWNER_PASSWORD", "hunter22")
+    monkeypatch.setenv("HEARTBEAT_INTERVAL_SECONDS", value)
+
+    from node.app import app
+
+    with pytest.raises(RuntimeError, match="HEARTBEAT_INTERVAL_SECONDS"):
+        with TestClient(app):
+            pass
+
+
+def test_heartbeat_interval_at_or_above_suspect_threshold_fails_startup(tmp_path, monkeypatch):
+    from shared.placement import SUSPECT_THRESHOLD
+
+    monkeypatch.setenv("STORAGE_DIRECTORY", str(tmp_path / "storage"))
+    monkeypatch.setenv("CAPACITY_BUDGET_GB", "10")
+    monkeypatch.setenv("COORDINATOR_ADDRESS", "http://coordinator.invalid")
+    monkeypatch.setenv("NODE_ADDRESS", "node.invalid:9000")
+    monkeypatch.setenv("OWNER_USERNAME", "alice")
+    monkeypatch.setenv("OWNER_PASSWORD", "hunter22")
+    monkeypatch.setenv("HEARTBEAT_INTERVAL_SECONDS", str(int(SUSPECT_THRESHOLD.total_seconds())))
+
+    from node.app import app
+
+    with pytest.raises(RuntimeError, match="suspect threshold"):
+        with TestClient(app):
+            pass
+
+
 @pytest.mark.parametrize(
     "var", ["COORDINATOR_ADDRESS", "NODE_ADDRESS", "OWNER_USERNAME", "OWNER_PASSWORD"]
 )

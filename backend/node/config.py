@@ -4,6 +4,8 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from shared.placement import SUSPECT_THRESHOLD
+
 GB = 1024**3
 
 
@@ -15,6 +17,7 @@ class NodeConfig:
     node_address: str
     owner_username: str
     owner_password: str = field(repr=False)
+    heartbeat_interval_seconds: int = 10
 
 
 def _int_from_env(name: str) -> int:
@@ -34,6 +37,16 @@ def _str_from_env(name: str) -> str:
     return value
 
 
+def _int_from_env_with_default(name: str, default: int) -> int:
+    raw = os.environ.get(name)
+    if not raw:
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        raise RuntimeError(f"{name} must be a whole number, got {raw!r}.") from None
+
+
 def load_config() -> NodeConfig:
     storage_directory = _str_from_env("STORAGE_DIRECTORY")
 
@@ -48,6 +61,16 @@ def load_config() -> NodeConfig:
     if not coordinator_address.startswith(("http://", "https://")):
         raise RuntimeError("COORDINATOR_ADDRESS must start with http:// or https://.")
 
+    heartbeat_interval_seconds = _int_from_env_with_default("HEARTBEAT_INTERVAL_SECONDS", 10)
+    if heartbeat_interval_seconds <= 0:
+        raise RuntimeError("HEARTBEAT_INTERVAL_SECONDS must be positive.")
+    if heartbeat_interval_seconds >= SUSPECT_THRESHOLD.total_seconds():
+        raise RuntimeError(
+            f"HEARTBEAT_INTERVAL_SECONDS ({heartbeat_interval_seconds}) must be less than "
+            f"the coordinator's suspect threshold ({SUSPECT_THRESHOLD.total_seconds():.0f}s), "
+            "or a healthy node would be marked suspect between beats."
+        )
+
     return NodeConfig(
         storage_directory=path,
         capacity_budget_bytes=capacity_budget_gb * GB,
@@ -55,4 +78,5 @@ def load_config() -> NodeConfig:
         node_address=_str_from_env("NODE_ADDRESS"),
         owner_username=_str_from_env("OWNER_USERNAME"),
         owner_password=_str_from_env("OWNER_PASSWORD"),
+        heartbeat_interval_seconds=heartbeat_interval_seconds,
     )

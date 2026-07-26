@@ -8,7 +8,7 @@ import httpx
 from node.config import NodeConfig
 
 
-def _used_bytes(storage_directory: Path) -> int:
+def measure_used_bytes(storage_directory: Path) -> int:
     total = 0
     for f in storage_directory.rglob("*"):
         try:
@@ -19,7 +19,7 @@ def _used_bytes(storage_directory: Path) -> int:
     return total
 
 
-def _raise_with_detail(response: httpx.Response) -> None:
+def raise_with_coordinator_detail(response: httpx.Response) -> None:
     try:
         response.raise_for_status()
     except httpx.HTTPStatusError as err:
@@ -32,7 +32,7 @@ def register_with_coordinator(config: NodeConfig, client: httpx.Client) -> None:
     login = client.post(
         "/login", json={"username": config.owner_username, "password": config.owner_password}
     )
-    _raise_with_detail(login)
+    raise_with_coordinator_detail(login)
 
     free_disk_bytes = shutil.disk_usage(config.storage_directory).free
     register = client.post(
@@ -41,7 +41,7 @@ def register_with_coordinator(config: NodeConfig, client: httpx.Client) -> None:
             "address": config.node_address,
             "capacity_budget_bytes": config.capacity_budget_bytes,
             "free_disk_bytes": free_disk_bytes,
-            "used_bytes": _used_bytes(config.storage_directory),
+            "used_bytes": measure_used_bytes(config.storage_directory),
         },
     )
-    _raise_with_detail(register)
+    raise_with_coordinator_detail(register)
