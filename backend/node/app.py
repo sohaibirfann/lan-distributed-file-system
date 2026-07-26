@@ -6,7 +6,14 @@ from contextlib import asynccontextmanager
 import httpx
 from fastapi import FastAPI, HTTPException, Request, Response
 
-from node.chunks import ChunkHashMismatch, InsufficientCapacity, InvalidChunkId, retrieve_chunk, store_chunk
+from node.chunks import (
+    ChunkHashMismatch,
+    InsufficientCapacity,
+    InvalidChunkId,
+    delete_chunk,
+    retrieve_chunk,
+    store_chunk,
+)
 from node.config import load_config
 from node.heartbeat import heartbeat_loop
 from node.registration import register_with_coordinator
@@ -79,3 +86,11 @@ def download_chunk(chunk_id: str, request: Request) -> Response:
         raise HTTPException(status_code=404, detail="chunk not found")
 
     return Response(content=data, media_type="application/octet-stream")
+
+
+@app.delete("/chunks/{chunk_id}", status_code=204)
+async def delete_chunk_route(chunk_id: str, request: Request) -> None:
+    try:
+        await asyncio.to_thread(delete_chunk, request.app.state.config, chunk_id)
+    except InvalidChunkId as err:
+        raise HTTPException(status_code=422, detail=str(err)) from err

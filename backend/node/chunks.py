@@ -72,3 +72,10 @@ def retrieve_chunk(config: NodeConfig, chunk_id: str) -> bytes | None:
     if not path.is_file():
         return None
     return path.read_bytes()
+
+
+def delete_chunk(config: NodeConfig, chunk_id: str) -> None:
+    # Idempotent: deleting an already-gone (or never-stored) chunk is success,
+    # not an error — matches the immutable, content-addressed model where
+    # "delete" just means "stop being responsible for this blob."
+    _chunk_path(config, chunk_id).unlink(missing_ok=True)

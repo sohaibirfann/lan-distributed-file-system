@@ -475,6 +475,16 @@ def delete_file(
     if file is None:
         raise HTTPException(status_code=404, detail="file not found")
 
+    # Gathered before the rows are gone, so bytes can still be reclaimed from
+    # nodes after the metadata delete below has already committed.
+    to_reclaim = (
+        db.query(Chunk.hash, Node.address)
+        .join(ChunkPlacement, ChunkPlacement.chunk_id == Chunk.id)
+        .join(Node, ChunkPlacement.node_id == Node.id)
+        .filter(Chunk.file_id == file_id)
+        .all()
+    )
+
     chunk_ids = [row.id for row in db.query(Chunk.id).filter(Chunk.file_id == file_id).all()]
     if chunk_ids:
         db.query(ChunkPlacement).filter(ChunkPlacement.chunk_id.in_(chunk_ids)).delete(
@@ -484,6 +494,15 @@ def delete_file(
 
     db.delete(file)
     db.commit()
+
+    # Best-effort: metadata deletion is the reliable, immediate guarantee.
+    # A node that's unreachable right now just keeps the bytes until the
+    # periodic sweep catches up — that sweep isn't built yet.
+    for chunk_hash, address in to_reclaim:
+        try:
+            _default_node_client(address).delete(f"/chunks/{chunk_hash}")
+        except httpx.HTTPError as err:
+            logger.warning("could not reclaim chunk %s from %s: %s", chunk_hash, address, err)
 
 
 @app.get("/replication/health", response_model=list[ChunkHealthOut])

@@ -6,6 +6,7 @@ from node.chunks import (
     ChunkHashMismatch,
     InsufficientCapacity,
     InvalidChunkId,
+    delete_chunk,
     retrieve_chunk,
     store_chunk,
 )
@@ -149,3 +150,55 @@ def test_a_corrupted_existing_file_is_repaired_not_trusted(tmp_path):
     store_chunk(config, chunk_id, data)
 
     assert retrieve_chunk(config, chunk_id) == data
+
+
+def test_delete_removes_a_stored_chunk(tmp_path):
+    storage_dir = tmp_path / "storage"
+    storage_dir.mkdir()
+    config = make_config(storage_dir)
+    data = b"chunk to be deleted"
+    chunk_id = chunk_id_for(data)
+    store_chunk(config, chunk_id, data)
+
+    delete_chunk(config, chunk_id)
+
+    assert retrieve_chunk(config, chunk_id) is None
+
+
+def test_delete_is_idempotent_for_a_chunk_that_was_never_stored(tmp_path):
+    storage_dir = tmp_path / "storage"
+    storage_dir.mkdir()
+    config = make_config(storage_dir)
+
+    delete_chunk(config, "a" * 64)  # must not raise
+    delete_chunk(config, "a" * 64)  # deleting twice must not raise either
+
+
+def test_delete_rejects_invalid_chunk_id(tmp_path):
+    storage_dir = tmp_path / "storage"
+    storage_dir.mkdir()
+    config = make_config(storage_dir)
+
+    with pytest.raises(InvalidChunkId):
+        delete_chunk(config, "../../etc/passwd")
+
+
+def test_delete_frees_up_capacity_for_reuse(tmp_path):
+    storage_dir = tmp_path / "storage"
+    storage_dir.mkdir()
+    config = NodeConfig(
+        storage_directory=storage_dir,
+        capacity_budget_bytes=100,
+        coordinator_address="http://coordinator.invalid",
+        node_address="192.168.1.5:9000",
+        owner_username="alice",
+        owner_password="hunter22",
+    )
+    first = b"x" * 100  # fills the entire budget
+    store_chunk(config, chunk_id_for(first), first)
+    delete_chunk(config, chunk_id_for(first))
+
+    second = b"y" * 100  # would have been rejected if the first chunk's
+    store_chunk(config, chunk_id_for(second), second)  # space wasn't reclaimed
+
+    assert retrieve_chunk(config, chunk_id_for(second)) == second

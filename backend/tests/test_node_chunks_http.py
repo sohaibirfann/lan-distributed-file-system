@@ -71,6 +71,28 @@ def test_upload_over_max_size_is_413(tmp_path, monkeypatch):
         assert response.status_code == 413
 
 
+def test_delete_then_download_is_404(tmp_path, monkeypatch):
+    with _client(tmp_path, monkeypatch) as c:
+        data = b"ciphertext bytes here"
+        chunk_id = chunk_id_for(data)
+        c.put(f"/chunks/{chunk_id}", content=data)
+
+        delete = c.delete(f"/chunks/{chunk_id}")
+
+        assert delete.status_code == 204
+        assert c.get(f"/chunks/{chunk_id}").status_code == 404
+
+
+def test_delete_of_a_never_stored_chunk_is_still_204(tmp_path, monkeypatch):
+    with _client(tmp_path, monkeypatch) as c:
+        assert c.delete(f"/chunks/{'a' * 64}").status_code == 204
+
+
+def test_delete_invalid_chunk_id_is_422(tmp_path, monkeypatch):
+    with _client(tmp_path, monkeypatch) as c:
+        assert c.delete("/chunks/not-a-valid-hash").status_code == 422
+
+
 def test_upload_over_max_size_without_content_length_is_still_413(tmp_path, monkeypatch):
     # A streamed body has no Content-Length header, so this only passes if
     # the post-read size check (not just the pre-read one) actually works.
