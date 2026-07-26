@@ -8,11 +8,11 @@ from shared.placement import NodeState
 # host:port, where host is a hostname or dotted IPv4. Deliberately strict: this
 # value is handed to browsers as a chunk destination, so anything with a scheme,
 # a path, or control characters has no business getting that far.
-_ADDRESS = re.compile(r"^[A-Za-z0-9][A-Za-z0-9.\-]*:(\d{1,5})$")
+_ADDRESS = re.compile(r"[A-Za-z0-9][A-Za-z0-9.\-]*:(\d{1,5})")
 
 
 def _validate_address(value: str) -> str:
-    match = _ADDRESS.match(value)
+    match = _ADDRESS.fullmatch(value)
     if match is None:
         raise ValueError("address must look like host:port")
     if not 1 <= int(match.group(1)) <= 65535:

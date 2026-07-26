@@ -35,6 +35,7 @@ def register_node(client, address="192.168.1.10:9000", capacity_gb=10, free_disk
         "host:0",
         "host",
         ":9000",
+        "host:9000\n",  # a fullmatch-vs-match($) bypass would accept this
     ],
 )
 def test_registration_rejects_malformed_addresses(client, address):

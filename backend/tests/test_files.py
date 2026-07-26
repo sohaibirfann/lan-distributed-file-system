@@ -194,3 +194,77 @@ def test_get_file_includes_chunk_hash(client):
     detail = client.get(f"/files/{file_id}").json()
 
     assert detail["chunks"][0]["hash"] == expected_hash
+
+
+def test_delete_file_requires_session(client):
+    assert client.delete("/files/1").status_code == 401
+
+
+def test_delete_file_404_for_unknown_id(client):
+    register(client)
+    login(client)
+
+    assert client.delete("/files/999").status_code == 404
+
+
+def test_delete_file_removes_it_from_listing_and_detail(client):
+    node_id = setup_account_and_node(client)
+    file_id = client.post("/files", json=make_file_body(node_ids=(node_id,))).json()["id"]
+
+    response = client.delete(f"/files/{file_id}")
+
+    assert response.status_code == 204
+    assert client.get(f"/files/{file_id}").status_code == 404
+    assert file_id not in {f["id"] for f in client.get("/files").json()}
+
+
+def test_delete_file_removes_its_chunks_and_placements(client):
+    from coordinator.db import SessionLocal
+    from coordinator.models import Chunk, ChunkPlacement
+
+    node_id = setup_account_and_node(client)
+    file_id = client.post(
+        "/files", json=make_file_body(chunk_sizes=(100, 200), node_ids=(node_id,))
+    ).json()["id"]
+
+    # Capture the chunk ids *before* deleting — a join through Chunk would
+    # find nothing after the delete regardless of whether ChunkPlacement was
+    # actually cleaned up, since the join itself has no rows left to match.
+    db = SessionLocal()
+    try:
+        chunk_ids = [row.id for row in db.query(Chunk.id).filter(Chunk.file_id == file_id).all()]
+        assert chunk_ids  # sanity: the file really has chunks before we delete it
+    finally:
+        db.close()
+
+    client.delete(f"/files/{file_id}")
+
+    db = SessionLocal()
+    try:
+        assert db.query(Chunk).filter(Chunk.file_id == file_id).count() == 0
+        assert db.query(ChunkPlacement).filter(ChunkPlacement.chunk_id.in_(chunk_ids)).count() == 0
+    finally:
+        db.close()
+
+
+def test_deleting_one_file_does_not_affect_another(client):
+    node_id = setup_account_and_node(client)
+    keep_id = client.post("/files", json=make_file_body(name="keep.txt", node_ids=(node_id,))).json()["id"]
+    delete_id = client.post(
+        "/files", json=make_file_body(name="delete.txt", node_ids=(node_id,))
+    ).json()["id"]
+
+    client.delete(f"/files/{delete_id}")
+
+    assert client.get(f"/files/{keep_id}").status_code == 200
+
+
+def test_deleting_the_same_file_twice_is_clean(client):
+    node_id = setup_account_and_node(client)
+    file_id = client.post("/files", json=make_file_body(node_ids=(node_id,))).json()["id"]
+
+    first = client.delete(f"/files/{file_id}")
+    second = client.delete(f"/files/{file_id}")
+
+    assert first.status_code == 204
+    assert second.status_code == 404

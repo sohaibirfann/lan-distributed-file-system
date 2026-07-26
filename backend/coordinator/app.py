@@ -443,3 +443,22 @@ def get_file(
         updated_at=file.updated_at,
         chunks=chunk_details,
     )
+
+
+@app.delete("/files/{file_id}", status_code=204)
+def delete_file(
+    file_id: int, account: Account = Depends(require_session), db: Session = Depends(get_db)
+) -> None:
+    file = db.get(File, file_id)
+    if file is None:
+        raise HTTPException(status_code=404, detail="file not found")
+
+    chunk_ids = [row.id for row in db.query(Chunk.id).filter(Chunk.file_id == file_id).all()]
+    if chunk_ids:
+        db.query(ChunkPlacement).filter(ChunkPlacement.chunk_id.in_(chunk_ids)).delete(
+            synchronize_session=False
+        )
+        db.query(Chunk).filter(Chunk.file_id == file_id).delete(synchronize_session=False)
+
+    db.delete(file)
+    db.commit()
