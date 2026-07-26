@@ -476,9 +476,13 @@ def delete_file(
         raise HTTPException(status_code=404, detail="file not found")
 
     # Gathered before the rows are gone, so bytes can still be reclaimed from
-    # nodes after the metadata delete below has already committed.
+    # nodes after the metadata delete below has already committed. Chunks
+    # aren't deduplicated across files, so two files can independently claim
+    # the same hash on the same node — node_id is kept alongside address so
+    # the post-commit check below can tell whether another file still needs
+    # this exact physical blob before it's actually deleted.
     to_reclaim = (
-        db.query(Chunk.hash, Node.address)
+        db.query(Chunk.hash, Node.id, Node.address)
         .join(ChunkPlacement, ChunkPlacement.chunk_id == Chunk.id)
         .join(Node, ChunkPlacement.node_id == Node.id)
         .filter(Chunk.file_id == file_id)
@@ -498,7 +502,19 @@ def delete_file(
     # Best-effort: metadata deletion is the reliable, immediate guarantee.
     # A node that's unreachable right now just keeps the bytes until the
     # periodic sweep catches up — that sweep isn't built yet.
-    for chunk_hash, address in to_reclaim:
+    for chunk_hash, node_id, address in to_reclaim:
+        # This file's own rows are already gone, so any remaining match here
+        # belongs to a different file that still needs this exact blob.
+        still_needed = (
+            db.query(ChunkPlacement)
+            .join(Chunk, ChunkPlacement.chunk_id == Chunk.id)
+            .filter(Chunk.hash == chunk_hash, ChunkPlacement.node_id == node_id)
+            .first()
+            is not None
+        )
+        if still_needed:
+            continue
+
         try:
             _default_node_client(address).delete(f"/chunks/{chunk_hash}")
         except httpx.HTTPError as err:
