@@ -1,5 +1,6 @@
 import re
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -132,3 +133,21 @@ class FileDetailOut(BaseModel):
     created_at: datetime
     updated_at: datetime
     chunks: list[ChunkDetailOut]
+
+
+class ChunkHealthOut(BaseModel):
+    chunk_id: int
+    file_id: int
+    sequence_index: int
+    healthy_node_ids: list[int]
+    replication_factor: int
+    status: Literal["under_replicated", "unavailable"]
+
+
+class RepairPlanOut(BaseModel):
+    chunk_id: int
+    file_id: int
+    sequence_index: int
+    hash: str
+    source_node_id: int
+    target_node_ids: list[int]

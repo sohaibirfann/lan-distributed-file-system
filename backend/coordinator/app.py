@@ -15,6 +15,7 @@ from coordinator.models import Account, Chunk, ChunkPlacement, File, Node, Setti
 from coordinator.schemas import (
     AccountOut,
     ChunkDetailOut,
+    ChunkHealthOut,
     ChunkPlacementOut,
     FileCreateRequest,
     FileDetailOut,
@@ -24,6 +25,7 @@ from coordinator.schemas import (
     NodeOut,
     NodeRegisterRequest,
     RegisterRequest,
+    RepairPlanOut,
 )
 from coordinator.security import (
     DUMMY_PASSWORD_HASH,
@@ -34,7 +36,8 @@ from coordinator.security import (
     verify_account_password,
     verify_namespace_passphrase,
 )
-from shared.placement import build_ring, placement_candidates
+from shared.placement import Node as PlacementNode
+from shared.placement import NodeState, build_ring, placement_candidates, state_from_heartbeat
 
 SESSION_COOKIE_NAME = "session"
 SESSION_LIFETIME = timedelta(days=int(os.environ.get("SESSION_LIFETIME_DAYS", "7")))
@@ -462,3 +465,119 @@ def delete_file(
 
     db.delete(file)
     db.commit()
+
+
+@app.get("/replication/health", response_model=list[ChunkHealthOut])
+def replication_health(
+    account: Account = Depends(require_session), db: Session = Depends(get_db)
+) -> list[ChunkHealthOut]:
+    replication_factor = int(get_required_setting(db, REPLICATION_FACTOR_KEY))
+
+    # Snapshot "now" once so every chunk in this response is judged against
+    # the same instant — evaluating Node.state fresh per access could let a
+    # node crossing the DOWN boundary mid-request answer differently for
+    # different chunks it's a replica of.
+    now = datetime.now(timezone.utc)
+    node_states = {
+        node.id: state_from_heartbeat(node.last_heartbeat_at, now, node.draining)
+        for node in db.query(Node).all()
+    }
+
+    at_risk = []
+    for chunk in db.query(Chunk).all():
+        placements = db.query(ChunkPlacement).filter(ChunkPlacement.chunk_id == chunk.id).all()
+        # A DOWN replica's bytes are presumed lost; anything else (UP, SUSPECT,
+        # DRAINING) still counts as a copy that hasn't actually failed yet —
+        # repair only kicks in once a node is confirmed DOWN, not merely flaky.
+        healthy_node_ids = [
+            placement.node_id
+            for placement in placements
+            if placement.node_id in node_states and node_states[placement.node_id] is not NodeState.DOWN
+        ]
+
+        if len(healthy_node_ids) >= replication_factor:
+            continue
+
+        at_risk.append(
+            ChunkHealthOut(
+                chunk_id=chunk.id,
+                file_id=chunk.file_id,
+                sequence_index=chunk.sequence_index,
+                healthy_node_ids=healthy_node_ids,
+                replication_factor=replication_factor,
+                status="unavailable" if not healthy_node_ids else "under_replicated",
+            )
+        )
+
+    return at_risk
+
+
+@app.get("/replication/repair-plan", response_model=list[RepairPlanOut])
+def repair_plan(
+    account: Account = Depends(require_session), db: Session = Depends(get_db)
+) -> list[RepairPlanOut]:
+    # Each chunk's plan is computed independently, so two chunks short a
+    # replica can both target the same spare node in one response. Fine for
+    # a planning-only endpoint; whatever executes these plans needs to notice
+    # a node filling up partway through and re-check before writing.
+    replication_factor = int(get_required_setting(db, REPLICATION_FACTOR_KEY))
+
+    # Built directly from one shared `now` rather than via Node.to_placement_node()
+    # (which stamps its own fresh timestamp) — otherwise the healthy/down check
+    # below and the ring's eligibility check could disagree on a node that
+    # crosses a threshold mid-request.
+    now = datetime.now(timezone.utc)
+    all_nodes = db.query(Node).all()
+    placement_nodes = {
+        str(node.id): PlacementNode(
+            node_id=str(node.id),
+            capacity_budget_bytes=node.capacity_budget_bytes,
+            free_disk_bytes=node.free_disk_bytes,
+            used_bytes=node.used_bytes,
+            state=state_from_heartbeat(node.last_heartbeat_at, now, node.draining),
+        )
+        for node in all_nodes
+    }
+    node_states = {int(node_id): pn.state for node_id, pn in placement_nodes.items()}
+    ring = build_ring(list(placement_nodes.values()))
+
+    plans = []
+    for chunk in db.query(Chunk).all():
+        placements = db.query(ChunkPlacement).filter(ChunkPlacement.chunk_id == chunk.id).all()
+        placed_node_ids = {placement.node_id for placement in placements}
+        healthy_node_ids = [
+            node_id
+            for node_id in placed_node_ids
+            if node_id in node_states and node_states[node_id] is not NodeState.DOWN
+        ]
+
+        needed = replication_factor - len(healthy_node_ids)
+        if needed <= 0 or not healthy_node_ids:
+            # Fully healthy needs no repair; zero healthy replicas means
+            # there's nothing left to copy from, so there's no plan to make.
+            continue
+
+        # Ask for every node the ring could offer, then drop ones that
+        # already hold this chunk (healthy or not — no point doubling up on
+        # a node that still has a copy) and take only as many as needed.
+        candidate_ids = placement_candidates(ring, placement_nodes, chunk.hash, len(all_nodes))
+        target_node_ids = [
+            int(node_id) for node_id in candidate_ids if int(node_id) not in placed_node_ids
+        ][:needed]
+        if not target_node_ids:
+            continue  # no eligible node currently available to repair onto
+
+        plans.append(
+            RepairPlanOut(
+                chunk_id=chunk.id,
+                file_id=chunk.file_id,
+                sequence_index=chunk.sequence_index,
+                hash=chunk.hash,
+                # Simplest defensible tiebreaker among surviving replicas —
+                # not a real latency measurement.
+                source_node_id=min(healthy_node_ids),
+                target_node_ids=target_node_ids,
+            )
+        )
+
+    return plans
