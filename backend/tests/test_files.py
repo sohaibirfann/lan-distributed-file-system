@@ -146,3 +146,51 @@ def test_create_file_records_one_placement_row_per_chunk_per_node(client):
         assert len({(p.chunk_id, p.node_id) for p in placements}) == 6
     finally:
         db.close()
+
+
+def test_get_file_requires_session(client):
+    assert client.get("/files/1").status_code == 401
+
+
+def test_get_file_404_for_unknown_id(client):
+    register(client)
+    login(client)
+
+    assert client.get("/files/999").status_code == 404
+
+
+def test_get_file_returns_chunks_in_sequence_order_regardless_of_submission_order(client):
+    node_id = setup_account_and_node(client)
+    body = make_file_body(chunk_sizes=(100, 200, 300), node_ids=(node_id,))
+    body["chunks"].reverse()  # submitted as [2, 1, 0], must still come back [0, 1, 2]
+    file_id = client.post("/files", json=body).json()["id"]
+
+    detail = client.get(f"/files/{file_id}").json()
+
+    assert [c["sequence_index"] for c in detail["chunks"]] == [0, 1, 2]
+    assert [c["size_bytes"] for c in detail["chunks"]] == [100, 200, 300]
+
+
+def test_get_file_returns_replica_addresses_per_chunk(client):
+    register(client)
+    login(client)
+    node_a = register_node(client, address="a:9000").json()
+    node_b = register_node(client, address="b:9000").json()
+    body = make_file_body(chunk_sizes=(100,), node_ids=(node_a["id"], node_b["id"]))
+    file_id = client.post("/files", json=body).json()["id"]
+
+    detail = client.get(f"/files/{file_id}").json()
+
+    addresses = {n["address"] for n in detail["chunks"][0]["nodes"]}
+    assert addresses == {"a:9000", "b:9000"}
+
+
+def test_get_file_includes_chunk_hash(client):
+    node_id = setup_account_and_node(client)
+    body = make_file_body(chunk_sizes=(100,), node_ids=(node_id,))
+    expected_hash = body["chunks"][0]["hash"]
+    file_id = client.post("/files", json=body).json()["id"]
+
+    detail = client.get(f"/files/{file_id}").json()
+
+    assert detail["chunks"][0]["hash"] == expected_hash

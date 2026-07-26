@@ -110,3 +110,25 @@ class FileOut(BaseModel):
     created_at: datetime
     updated_at: datetime
     chunk_count: int
+
+
+class ChunkPlacementOut(BaseModel):
+    node_id: int
+    address: str
+
+
+class ChunkDetailOut(BaseModel):
+    sequence_index: int
+    hash: str
+    size_bytes: int
+    nodes: list[ChunkPlacementOut]
+
+
+class FileDetailOut(BaseModel):
+    id: int
+    name: str
+    size_bytes: int
+    uploader_account_id: int
+    created_at: datetime
+    updated_at: datetime
+    chunks: list[ChunkDetailOut]

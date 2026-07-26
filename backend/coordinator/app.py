@@ -14,7 +14,10 @@ from coordinator.db import get_db, init_db, SessionLocal
 from coordinator.models import Account, Chunk, ChunkPlacement, File, Node, Settings
 from coordinator.schemas import (
     AccountOut,
+    ChunkDetailOut,
+    ChunkPlacementOut,
     FileCreateRequest,
+    FileDetailOut,
     FileOut,
     LoginRequest,
     NodeHeartbeatRequest,
@@ -398,3 +401,45 @@ def list_files(
 ) -> list[FileOut]:
     files = db.query(File).order_by(File.id).all()
     return [_file_out(db, file) for file in files]
+
+
+@app.get("/files/{file_id}", response_model=FileDetailOut)
+def get_file(
+    file_id: int, account: Account = Depends(require_session), db: Session = Depends(get_db)
+) -> FileDetailOut:
+    file = db.get(File, file_id)
+    if file is None:
+        raise HTTPException(status_code=404, detail="file not found")
+
+    chunks = (
+        db.query(Chunk).filter(Chunk.file_id == file_id).order_by(Chunk.sequence_index).all()
+    )
+    chunk_details = []
+    for chunk in chunks:
+        placements = (
+            db.query(ChunkPlacement, Node)
+            .join(Node, ChunkPlacement.node_id == Node.id)
+            .filter(ChunkPlacement.chunk_id == chunk.id)
+            .all()
+        )
+        chunk_details.append(
+            ChunkDetailOut(
+                sequence_index=chunk.sequence_index,
+                hash=chunk.hash,
+                size_bytes=chunk.size_bytes,
+                nodes=[
+                    ChunkPlacementOut(node_id=node.id, address=node.address)
+                    for _, node in placements
+                ],
+            )
+        )
+
+    return FileDetailOut(
+        id=file.id,
+        name=file.name,
+        size_bytes=file.size_bytes,
+        uploader_account_id=file.uploader_account_id,
+        created_at=file.created_at,
+        updated_at=file.updated_at,
+        chunks=chunk_details,
+    )
