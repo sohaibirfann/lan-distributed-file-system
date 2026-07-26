@@ -162,3 +162,12 @@ class RepairResultOut(BaseModel):
     repaired_node_ids: list[int]
     failed_node_ids: list[int]
     error: str | None
+
+
+class EventOut(BaseModel):
+    id: int
+    created_at: datetime
+    kind: str
+    message: str
+
+    model_config = {"from_attributes": True}

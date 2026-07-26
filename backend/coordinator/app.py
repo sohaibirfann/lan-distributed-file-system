@@ -17,12 +17,13 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from coordinator.db import get_db, init_db, SessionLocal
-from coordinator.models import Account, Chunk, ChunkPlacement, File, Node, Settings
+from coordinator.models import Account, Chunk, ChunkPlacement, Event, File, Node, Settings
 from coordinator.schemas import (
     AccountOut,
     ChunkDetailOut,
     ChunkHealthOut,
     ChunkPlacementOut,
+    EventOut,
     FileCreateRequest,
     FileDetailOut,
     FileOut,
@@ -400,6 +401,13 @@ def list_nodes(
     account: Account = Depends(require_session), db: Session = Depends(get_db)
 ) -> list[Node]:
     return db.query(Node).order_by(Node.id).all()
+
+
+@app.get("/events", response_model=list[EventOut])
+def list_events(
+    account: Account = Depends(require_session), db: Session = Depends(get_db)
+) -> list[Event]:
+    return db.query(Event).order_by(Event.id.desc()).limit(200).all()
 
 
 @app.get("/placement/{chunk_id}", response_model=list[NodeOut])
@@ -796,13 +804,52 @@ def _execute_repair(
     )
 
 
+def _record_event(db: Session, kind: str, message: str) -> None:
+    db.add(Event(kind=kind, message=message))
+
+
+def _record_node_state_transitions(db: Session) -> None:
+    now = datetime.now(timezone.utc)
+    for node in db.query(Node).all():
+        current_state = state_from_heartbeat(node.last_heartbeat_at, now, node.draining).value
+        if current_state != node.last_known_state:
+            _record_event(
+                db,
+                "node_state_transition",
+                f"node {node.id} ({node.address}) transitioned "
+                f"{node.last_known_state} -> {current_state}",
+            )
+            node.last_known_state = current_state
+    db.commit()
+
+
+def _execute_repair_plans(db: Session, plans: list[RepairPlanOut]) -> list[RepairResultOut]:
+    results = [_execute_repair(db, plan, _default_node_client) for plan in plans]
+    for result in results:
+        if result.error is not None or result.failed_node_ids:
+            message = (
+                f"chunk {result.chunk_id} repair had failures: "
+                f"repaired={result.repaired_node_ids} failed={result.failed_node_ids} "
+                f"error={result.error}"
+            )
+            logger.warning(message)
+        else:
+            message = f"chunk {result.chunk_id} repaired onto node(s) {result.repaired_node_ids}"
+            logger.info(message)
+        _record_event(db, "repair", message)
+    return results
+
+
 @app.post("/replication/repair", response_model=list[RepairResultOut])
 def execute_repairs(
     account: Account = Depends(require_session), db: Session = Depends(get_db)
 ) -> list[RepairResultOut]:
+    _record_node_state_transitions(db)
     replication_factor = int(get_required_setting(db, REPLICATION_FACTOR_KEY))
     plans = _compute_repair_plans(db, replication_factor)
-    return [_execute_repair(db, plan, _default_node_client) for plan in plans]
+    results = _execute_repair_plans(db, plans)
+    db.commit()
+    return results
 
 
 def run_one_repair_cycle() -> list[RepairResultOut]:
@@ -810,27 +857,13 @@ def run_one_repair_cycle() -> list[RepairResultOut]:
     the background loop, which has no request-scoped one to reuse."""
     db = SessionLocal()
     try:
+        _record_node_state_transitions(db)
         replication_factor = int(get_required_setting(db, REPLICATION_FACTOR_KEY))
         plans = _compute_repair_plans(db, replication_factor)
-        results = [_execute_repair(db, plan, _default_node_client) for plan in plans]
+        results = _execute_repair_plans(db, plans)
+        db.commit()
     finally:
         db.close()
-
-    # Unlike the HTTP endpoint, nothing is watching this call directly — log
-    # it, or an unattended repair failing silently would never be noticed.
-    for result in results:
-        if result.error is not None or result.failed_node_ids:
-            logger.warning(
-                "chunk %s repair had failures: repaired=%s failed=%s error=%s",
-                result.chunk_id,
-                result.repaired_node_ids,
-                result.failed_node_ids,
-                result.error,
-            )
-        else:
-            logger.info(
-                "chunk %s repaired onto node(s) %s", result.chunk_id, result.repaired_node_ids
-            )
 
     return results
 

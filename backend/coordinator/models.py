@@ -42,6 +42,8 @@ class Node(Base):
     draining: Mapped[bool] = mapped_column(default=False)
     registered_at: Mapped[datetime] = mapped_column(UTCDateTime, default=_utcnow)
     last_heartbeat_at: Mapped[datetime] = mapped_column(UTCDateTime, default=_utcnow)
+    # Persisted so transitions can be detected -- `state` itself is never stored.
+    last_known_state: Mapped[str] = mapped_column(String, default=NodeState.UP.value)
 
     def to_placement_node(self) -> PlacementNode:
         """The ring's view of this row. Capacity and eligibility rules live in
@@ -91,3 +93,12 @@ class ChunkPlacement(Base):
     chunk_id: Mapped[int] = mapped_column(ForeignKey("chunks.id"))
     node_id: Mapped[int] = mapped_column(ForeignKey("nodes.id"))
     written_at: Mapped[datetime] = mapped_column(UTCDateTime, default=_utcnow)
+
+
+class Event(Base):
+    __tablename__ = "events"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=_utcnow)
+    kind: Mapped[str] = mapped_column(String)
+    message: Mapped[str] = mapped_column(String)
