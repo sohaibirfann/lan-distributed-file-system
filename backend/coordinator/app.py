@@ -287,6 +287,65 @@ def _apply_report(node: Node, body: NodeRegisterRequest) -> None:
     node.last_heartbeat_at = datetime.now(timezone.utc)
 
 
+def _release_surplus_placements(db: Session, node: Node) -> None:
+    # Releases replicas repair already replaced with a spare while this node was down.
+    replication_factor = int(get_required_setting(db, REPLICATION_FACTOR_KEY))
+    now = datetime.now(timezone.utc)
+    node_states = {
+        n.id: state_from_heartbeat(n.last_heartbeat_at, now, n.draining)
+        for n in db.query(Node).all()
+    }
+
+    placements = (
+        db.query(ChunkPlacement, Chunk.hash)
+        .join(Chunk, ChunkPlacement.chunk_id == Chunk.id)
+        .filter(ChunkPlacement.node_id == node.id)
+        .all()
+    )
+
+    released_hashes = []
+    for placement, chunk_hash in placements:
+        other_placements = (
+            db.query(ChunkPlacement)
+            .filter(
+                ChunkPlacement.chunk_id == placement.chunk_id,
+                ChunkPlacement.node_id != node.id,
+            )
+            .all()
+        )
+        other_healthy_count = sum(
+            1
+            for p in other_placements
+            if p.node_id in node_states and node_states[p.node_id] is not NodeState.DOWN
+        )
+        if other_healthy_count < replication_factor:
+            continue
+
+        db.delete(placement)
+        released_hashes.append(chunk_hash)
+
+    db.commit()  # metadata is the reliable guarantee; physical deletes below are best-effort
+
+    for chunk_hash in released_hashes:
+        # Another Chunk row can share this hash and still be placed on this node.
+        still_needed = (
+            db.query(ChunkPlacement)
+            .join(Chunk, ChunkPlacement.chunk_id == Chunk.id)
+            .filter(Chunk.hash == chunk_hash, ChunkPlacement.node_id == node.id)
+            .first()
+            is not None
+        )
+        if still_needed:
+            continue
+
+        try:
+            _default_node_client(node.address).delete(f"/chunks/{chunk_hash}")
+        except httpx.HTTPError as err:
+            logger.warning(
+                "could not release surplus chunk %s from %s: %s", chunk_hash, node.address, err
+            )
+
+
 @app.post("/nodes/register", response_model=NodeOut, status_code=201)
 def register_node(
     body: NodeRegisterRequest,
@@ -300,6 +359,7 @@ def register_node(
         _apply_report(node, body)
         db.commit()
         db.refresh(node)
+        _release_surplus_placements(db, node)
         return node
 
     node = Node(owner_account_id=account.id, address=body.address)
