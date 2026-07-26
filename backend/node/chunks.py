@@ -74,11 +74,11 @@ def retrieve_chunk(config: NodeConfig, chunk_id: str) -> bytes | None:
     return path.read_bytes()
 
 
-def list_chunk_ids(config: NodeConfig) -> list[str]:
-    # Non-chunk files (e.g. stray temp files) are silently skipped rather
-    # than surfaced as bogus inventory entries.
+def list_chunk_inventory(config: NodeConfig) -> list[tuple[str, float]]:
+    # (chunk_id, mtime) — mtime lets callers tell a just-uploaded chunk apart
+    # from a true orphan. Non-chunk files are silently skipped.
     return [
-        entry.name
+        (entry.name, entry.stat().st_mtime)
         for entry in config.storage_directory.iterdir()
         if entry.is_file() and CHUNK_ID_PATTERN.fullmatch(entry.name)
     ]

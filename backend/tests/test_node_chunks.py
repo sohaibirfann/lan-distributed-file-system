@@ -7,7 +7,7 @@ from node.chunks import (
     InsufficientCapacity,
     InvalidChunkId,
     delete_chunk,
-    list_chunk_ids,
+    list_chunk_inventory,
     retrieve_chunk,
     store_chunk,
 )
@@ -184,7 +184,7 @@ def test_delete_rejects_invalid_chunk_id(tmp_path):
         delete_chunk(config, "../../etc/passwd")
 
 
-def test_list_chunk_ids_returns_stored_chunks(tmp_path):
+def test_list_chunk_inventory_returns_stored_chunks(tmp_path):
     storage_dir = tmp_path / "storage"
     storage_dir.mkdir()
     config = make_config(storage_dir)
@@ -193,24 +193,38 @@ def test_list_chunk_ids_returns_stored_chunks(tmp_path):
     store_chunk(config, chunk_id_for(a), a)
     store_chunk(config, chunk_id_for(b), b)
 
-    assert sorted(list_chunk_ids(config)) == sorted([chunk_id_for(a), chunk_id_for(b)])
+    ids = {chunk_id for chunk_id, _ in list_chunk_inventory(config)}
+    assert ids == {chunk_id_for(a), chunk_id_for(b)}
 
 
-def test_list_chunk_ids_ignores_non_chunk_files(tmp_path):
+def test_list_chunk_inventory_reports_a_recent_stored_at(tmp_path):
+    import time
+
+    storage_dir = tmp_path / "storage"
+    storage_dir.mkdir()
+    config = make_config(storage_dir)
+    data = b"a chunk"
+    store_chunk(config, chunk_id_for(data), data)
+
+    [(_, stored_at)] = list_chunk_inventory(config)
+    assert abs(time.time() - stored_at) < 5
+
+
+def test_list_chunk_inventory_ignores_non_chunk_files(tmp_path):
     storage_dir = tmp_path / "storage"
     storage_dir.mkdir()
     config = make_config(storage_dir)
     (storage_dir / "not-a-chunk.tmp").write_bytes(b"stray file")
 
-    assert list_chunk_ids(config) == []
+    assert list_chunk_inventory(config) == []
 
 
-def test_list_chunk_ids_empty_when_nothing_stored(tmp_path):
+def test_list_chunk_inventory_empty_when_nothing_stored(tmp_path):
     storage_dir = tmp_path / "storage"
     storage_dir.mkdir()
     config = make_config(storage_dir)
 
-    assert list_chunk_ids(config) == []
+    assert list_chunk_inventory(config) == []
 
 
 def test_delete_frees_up_capacity_for_reuse(tmp_path):

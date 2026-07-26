@@ -11,7 +11,7 @@ from node.chunks import (
     InsufficientCapacity,
     InvalidChunkId,
     delete_chunk,
-    list_chunk_ids,
+    list_chunk_inventory,
     retrieve_chunk,
     store_chunk,
 )
@@ -52,8 +52,11 @@ def health() -> dict[str, str]:
 
 
 @app.get("/chunks")
-def list_chunks(request: Request) -> list[str]:
-    return list_chunk_ids(request.app.state.config)
+def list_chunks(request: Request) -> list[dict[str, str | float]]:
+    return [
+        {"hash": chunk_id, "stored_at": stored_at}
+        for chunk_id, stored_at in list_chunk_inventory(request.app.state.config)
+    ]
 
 
 @app.put("/chunks/{chunk_id}")

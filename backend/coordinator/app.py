@@ -5,6 +5,7 @@ import hashlib
 import logging
 import os
 import secrets
+import time
 from collections.abc import Callable
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
@@ -141,13 +142,21 @@ async def lifespan(app: FastAPI):
     if repair_interval_seconds <= 0:
         raise RuntimeError("REPAIR_INTERVAL_SECONDS must be positive.")
 
+    gc_sweep_interval_seconds = _int_from_env("GC_SWEEP_INTERVAL_SECONDS", "300")
+    if gc_sweep_interval_seconds <= 0:
+        raise RuntimeError("GC_SWEEP_INTERVAL_SECONDS must be positive.")
+
     stop = asyncio.Event()
     task = asyncio.create_task(repair_loop(stop, repair_interval_seconds))
+    gc_stop = asyncio.Event()
+    gc_task = asyncio.create_task(gc_sweep_loop(gc_stop, gc_sweep_interval_seconds))
     try:
         yield
     finally:
         stop.set()
+        gc_stop.set()
         await task  # waits for any in-flight repair cycle to actually finish
+        await gc_task  # waits for any in-flight sweep to actually finish
 
 
 def require_session(request: Request, db: Session = Depends(get_db)) -> Account:
@@ -501,7 +510,7 @@ def delete_file(
 
     # Best-effort: metadata deletion is the reliable, immediate guarantee.
     # A node that's unreachable right now just keeps the bytes until the
-    # periodic sweep catches up — that sweep isn't built yet.
+    # periodic gc sweep catches up.
     for chunk_hash, node_id, address in to_reclaim:
         # This file's own rows are already gone, so any remaining match here
         # belongs to a different file that still needs this exact blob.
@@ -766,3 +775,62 @@ async def repair_loop(stop: asyncio.Event, interval_seconds: float) -> None:
             # (DB errors, multiple network calls) — one bad cycle logs and
             # waits for the next interval rather than ending the loop.
             logger.warning("repair cycle failed: %s", err)
+
+
+def run_one_gc_cycle() -> None:
+    # Chunks younger than this are skipped: upload-to-a-node and POST /files
+    # registration aren't transactional, so a very recent chunk might just be
+    # awaiting registration rather than truly orphaned.
+    grace_period_seconds = _int_from_env("GC_ORPHAN_GRACE_SECONDS", "600")
+
+    db = SessionLocal()
+    try:
+        now = time.time()
+        for node in db.query(Node).all():
+            try:
+                response = _default_node_client(node.address).get("/chunks")
+                response.raise_for_status()
+            except httpx.HTTPError as err:
+                logger.warning("could not list chunks on node %s: %s", node.address, err)
+                continue
+
+            referenced_hashes = {
+                row.hash
+                for row in db.query(Chunk.hash)
+                .join(ChunkPlacement, ChunkPlacement.chunk_id == Chunk.id)
+                .filter(ChunkPlacement.node_id == node.id)
+                .all()
+            }
+
+            for entry in response.json():
+                orphan_hash = entry["hash"]
+                if orphan_hash in referenced_hashes:
+                    continue
+                if now - entry["stored_at"] < grace_period_seconds:
+                    continue
+
+                try:
+                    _default_node_client(node.address).delete(f"/chunks/{orphan_hash}")
+                    logger.info("reclaimed orphaned chunk %s from %s", orphan_hash, node.address)
+                except httpx.HTTPError as err:
+                    logger.warning(
+                        "could not reclaim orphaned chunk %s from %s: %s",
+                        orphan_hash, node.address, err,
+                    )
+    finally:
+        db.close()
+
+
+async def gc_sweep_loop(stop: asyncio.Event, interval_seconds: float) -> None:
+    # Same cooperative-stop pattern as repair_loop/heartbeat_loop.
+    while not stop.is_set():
+        try:
+            await asyncio.wait_for(stop.wait(), timeout=interval_seconds)
+            return
+        except TimeoutError:
+            pass
+
+        try:
+            await asyncio.to_thread(run_one_gc_cycle)
+        except Exception as err:
+            logger.warning("gc sweep cycle failed: %s", err)

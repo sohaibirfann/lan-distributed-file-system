@@ -101,7 +101,9 @@ def test_list_chunks_reflects_stored_and_deleted_chunks(tmp_path, monkeypatch):
         assert c.get("/chunks").json() == []
 
         c.put(f"/chunks/{chunk_id}", content=data)
-        assert c.get("/chunks").json() == [chunk_id]
+        listed = c.get("/chunks").json()
+        assert [entry["hash"] for entry in listed] == [chunk_id]
+        assert isinstance(listed[0]["stored_at"], (int, float))
 
         c.delete(f"/chunks/{chunk_id}")
         assert c.get("/chunks").json() == []
