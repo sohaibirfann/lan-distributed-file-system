@@ -19,6 +19,7 @@ def test_replication_config_defaults(client):
     assert body == {
         "replication_factor": 3,
         "write_quorum": 2,
+        "max_file_size_bytes": 10 * 1024**3,
         "registered_node_count": 0,
         "under_replicated": True,
         "eligible_node_count": 0,
@@ -102,6 +103,7 @@ def test_replication_config_reads_from_environment(tmp_path, monkeypatch):
         assert c.get("/config/replication").json() == {
             "replication_factor": 5,
             "write_quorum": 3,
+            "max_file_size_bytes": 10 * 1024**3,
             "registered_node_count": 0,
             "under_replicated": True,
             "eligible_node_count": 0,

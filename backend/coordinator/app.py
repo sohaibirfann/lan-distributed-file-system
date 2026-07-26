@@ -60,6 +60,7 @@ NAMESPACE_PASSPHRASE_HASH_KEY = "namespace_passphrase_hash"
 JWT_SECRET_KEY_KEY = "jwt_secret_key"
 REPLICATION_FACTOR_KEY = "replication_factor"
 WRITE_QUORUM_KEY = "write_quorum"
+MAX_FILE_SIZE_BYTES_KEY = "max_file_size_bytes"
 
 
 def get_setting(db: Session, key: str) -> str | None:
@@ -134,11 +135,26 @@ def load_replication_config() -> None:
         db.close()
 
 
+def load_max_file_size_config() -> None:
+    # 10 GiB default; no specific value is mandated, so this is configurable.
+    max_file_size_bytes = _int_from_env("MAX_FILE_SIZE_BYTES", str(10 * 1024**3))
+    if max_file_size_bytes <= 0:
+        raise RuntimeError("MAX_FILE_SIZE_BYTES must be positive.")
+
+    db = SessionLocal()
+    try:
+        set_setting(db, MAX_FILE_SIZE_BYTES_KEY, str(max_file_size_bytes))
+        db.commit()
+    finally:
+        db.close()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
     seed_settings()
     load_replication_config()
+    load_max_file_size_config()
 
     repair_interval_seconds = _int_from_env("REPAIR_INTERVAL_SECONDS", "60")
     if repair_interval_seconds <= 0:
@@ -262,12 +278,14 @@ def replication_config(
 ) -> dict[str, int | bool]:
     replication_factor = int(get_required_setting(db, REPLICATION_FACTOR_KEY))
     write_quorum = int(get_required_setting(db, WRITE_QUORUM_KEY))
+    max_file_size_bytes = int(get_required_setting(db, MAX_FILE_SIZE_BYTES_KEY))
     nodes = db.query(Node).all()
     eligible_node_count = sum(1 for node in nodes if node.to_placement_node().is_eligible)
 
     return {
         "replication_factor": replication_factor,
         "write_quorum": write_quorum,
+        "max_file_size_bytes": max_file_size_bytes,
         "registered_node_count": len(nodes),
         # registered_node_count can undercount a live outage (a down node is
         # still "registered"), so this is a separate, honest write-health signal.
@@ -464,6 +482,13 @@ def create_file(
         raise HTTPException(
             status_code=422,
             detail=f"size_bytes ({body.size_bytes}) does not match the sum of chunk sizes ({declared_total})",
+        )
+
+    max_file_size_bytes = int(get_required_setting(db, MAX_FILE_SIZE_BYTES_KEY))
+    if body.size_bytes > max_file_size_bytes:
+        raise HTTPException(
+            status_code=413,
+            detail=f"file exceeds the maximum allowed size ({max_file_size_bytes} bytes)",
         )
 
     node_ids = {node_id for chunk in body.chunks for node_id in chunk.node_ids}
