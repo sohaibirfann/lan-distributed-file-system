@@ -27,11 +27,17 @@ class Node:
 
     @property
     def effective_capacity_bytes(self) -> int:
+        # A total, for ring weighting — not how much space is left right now.
         return min(self.capacity_budget_bytes, self.free_disk_bytes)
 
     @property
+    def remaining_bytes(self) -> int:
+        budget_headroom = self.capacity_budget_bytes - self.used_bytes
+        return max(0, min(budget_headroom, self.free_disk_bytes))
+
+    @property
     def is_full(self) -> bool:
-        return self.used_bytes >= self.effective_capacity_bytes
+        return self.remaining_bytes == 0
 
     @property
     def is_eligible(self) -> bool:
@@ -64,7 +70,7 @@ def placement_candidates(
     chunk_id: str,
     replication_factor: int,
 ) -> list[str]:
-    if not ring:
+    if not ring or replication_factor <= 0:
         return []
 
     start_position = ring_position(chunk_id)
@@ -78,8 +84,8 @@ def placement_candidates(
         if node_id in seen:
             continue
         seen.add(node_id)
-        node = nodes_by_id[node_id]
-        if not node.is_eligible:
+        node = nodes_by_id.get(node_id)
+        if node is None or not node.is_eligible:
             continue
         chosen.append(node_id)
         if len(chosen) == replication_factor:
