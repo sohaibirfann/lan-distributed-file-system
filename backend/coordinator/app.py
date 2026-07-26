@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import hashlib
 import os
 import secrets
+from collections.abc import Callable
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 
+import httpx
 import jwt
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from sqlalchemy.exc import IntegrityError
@@ -26,6 +29,7 @@ from coordinator.schemas import (
     NodeRegisterRequest,
     RegisterRequest,
     RepairPlanOut,
+    RepairResultOut,
 )
 from coordinator.security import (
     DUMMY_PASSWORD_HASH,
@@ -512,16 +516,12 @@ def replication_health(
     return at_risk
 
 
-@app.get("/replication/repair-plan", response_model=list[RepairPlanOut])
-def repair_plan(
-    account: Account = Depends(require_session), db: Session = Depends(get_db)
-) -> list[RepairPlanOut]:
+def _compute_repair_plans(db: Session, replication_factor: int) -> list[RepairPlanOut]:
     # Each chunk's plan is computed independently, so two chunks short a
     # replica can both target the same spare node in one response. Fine for
-    # a planning-only endpoint; whatever executes these plans needs to notice
-    # a node filling up partway through and re-check before writing.
-    replication_factor = int(get_required_setting(db, REPLICATION_FACTOR_KEY))
-
+    # a planning-only computation; whatever executes these plans needs to
+    # notice a node filling up partway through and re-check before writing.
+    #
     # Built directly from one shared `now` rather than via Node.to_placement_node()
     # (which stamps its own fresh timestamp) — otherwise the healthy/down check
     # below and the ring's eligibility check could disagree on a node that
@@ -581,3 +581,87 @@ def repair_plan(
         )
 
     return plans
+
+
+@app.get("/replication/repair-plan", response_model=list[RepairPlanOut])
+def repair_plan(
+    account: Account = Depends(require_session), db: Session = Depends(get_db)
+) -> list[RepairPlanOut]:
+    replication_factor = int(get_required_setting(db, REPLICATION_FACTOR_KEY))
+    return _compute_repair_plans(db, replication_factor)
+
+
+def _default_node_client(address: str) -> httpx.Client:
+    return httpx.Client(base_url=f"http://{address}")
+
+
+def _execute_repair(
+    db: Session, plan: RepairPlanOut, get_node_client: Callable[[str], httpx.Client]
+) -> RepairResultOut:
+    def failed_result(error: str) -> RepairResultOut:
+        return RepairResultOut(
+            chunk_id=plan.chunk_id,
+            repaired_node_ids=[],
+            failed_node_ids=list(plan.target_node_ids),
+            error=error,
+        )
+
+    source_node = db.get(Node, plan.source_node_id)
+    if source_node is None:
+        return failed_result(f"source node {plan.source_node_id} no longer exists")
+
+    # A down/unreachable node is the whole reason repair exists, so a
+    # transport failure here must fail this one chunk, not the whole batch.
+    try:
+        response = get_node_client(source_node.address).get(f"/chunks/{plan.hash}")
+    except httpx.HTTPError as err:
+        return failed_result(f"could not reach source node: {err}")
+
+    if response.status_code != 200:
+        return failed_result(f"could not fetch chunk from source node: HTTP {response.status_code}")
+
+    data = response.content
+    if hashlib.sha256(data).hexdigest() != plan.hash:
+        # The source node's own PUT already verifies this on the way in, but a
+        # bit-flip on disk or in transit since then is exactly what repair
+        # exists to catch — never propagate a copy that fails its own hash.
+        return failed_result("source data failed hash verification")
+
+    repaired_node_ids: list[int] = []
+    failed_node_ids: list[int] = []
+    for target_node_id in plan.target_node_ids:
+        target_node = db.get(Node, target_node_id)
+        if target_node is None:
+            failed_node_ids.append(target_node_id)
+            continue
+
+        try:
+            put_response = get_node_client(target_node.address).put(
+                f"/chunks/{plan.hash}", content=data
+            )
+            ok = put_response.status_code == 200
+        except httpx.HTTPError:
+            ok = False
+
+        if ok:
+            db.add(ChunkPlacement(chunk_id=plan.chunk_id, node_id=target_node_id))
+            repaired_node_ids.append(target_node_id)
+        else:
+            failed_node_ids.append(target_node_id)
+
+    db.commit()
+    return RepairResultOut(
+        chunk_id=plan.chunk_id,
+        repaired_node_ids=repaired_node_ids,
+        failed_node_ids=failed_node_ids,
+        error=None,
+    )
+
+
+@app.post("/replication/repair", response_model=list[RepairResultOut])
+def execute_repairs(
+    account: Account = Depends(require_session), db: Session = Depends(get_db)
+) -> list[RepairResultOut]:
+    replication_factor = int(get_required_setting(db, REPLICATION_FACTOR_KEY))
+    plans = _compute_repair_plans(db, replication_factor)
+    return [_execute_repair(db, plan, _default_node_client) for plan in plans]

@@ -151,3 +151,10 @@ class RepairPlanOut(BaseModel):
     hash: str
     source_node_id: int
     target_node_ids: list[int]
+
+
+class RepairResultOut(BaseModel):
+    chunk_id: int
+    repaired_node_ids: list[int]
+    failed_node_ids: list[int]
+    error: str | None
