@@ -103,6 +103,10 @@ class FileCreateRequest(BaseModel):
     chunks: list[ChunkIn] = Field(min_length=1)
 
 
+class FileRenameRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=255)
+
+
 class FileOut(BaseModel):
     id: int
     name: str

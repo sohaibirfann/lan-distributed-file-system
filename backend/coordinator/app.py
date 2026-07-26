@@ -26,6 +26,7 @@ from coordinator.schemas import (
     FileCreateRequest,
     FileDetailOut,
     FileOut,
+    FileRenameRequest,
     LoginRequest,
     NodeHeartbeatRequest,
     NodeOut,
@@ -474,6 +475,24 @@ def get_file(
         updated_at=file.updated_at,
         chunks=chunk_details,
     )
+
+
+@app.patch("/files/{file_id}", response_model=FileOut)
+def rename_file(
+    file_id: int,
+    body: FileRenameRequest,
+    account: Account = Depends(require_session),
+    db: Session = Depends(get_db),
+) -> FileOut:
+    file = db.get(File, file_id)
+    if file is None:
+        raise HTTPException(status_code=404, detail="file not found")
+
+    file.name = body.name
+    file.updated_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(file)
+    return _file_out(db, file)
 
 
 @app.delete("/files/{file_id}", status_code=204)

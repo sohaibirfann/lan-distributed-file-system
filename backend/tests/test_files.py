@@ -218,6 +218,52 @@ def test_delete_file_removes_it_from_listing_and_detail(client):
     assert file_id not in {f["id"] for f in client.get("/files").json()}
 
 
+def test_rename_file_requires_session(client):
+    assert client.patch("/files/1", json={"name": "new.txt"}).status_code == 401
+
+
+def test_rename_file_404_for_unknown_id(client):
+    register(client)
+    login(client)
+
+    assert client.patch("/files/999", json={"name": "new.txt"}).status_code == 404
+
+
+def test_rename_file_updates_name_and_is_reflected_in_listing_and_detail(client):
+    node_id = setup_account_and_node(client)
+    file_id = client.post(
+        "/files", json=make_file_body(name="old.txt", node_ids=(node_id,))
+    ).json()["id"]
+
+    response = client.patch(f"/files/{file_id}", json={"name": "new.txt"})
+
+    assert response.status_code == 200
+    assert response.json()["name"] == "new.txt"
+    assert client.get(f"/files/{file_id}").json()["name"] == "new.txt"
+    assert {f["name"] for f in client.get("/files").json()} == {"new.txt"}
+
+
+def test_rename_file_does_not_touch_chunks(client):
+    node_id = setup_account_and_node(client)
+    file_id = client.post(
+        "/files", json=make_file_body(chunk_sizes=(100, 200), node_ids=(node_id,))
+    ).json()["id"]
+    original_chunks = client.get(f"/files/{file_id}").json()["chunks"]
+
+    client.patch(f"/files/{file_id}", json={"name": "renamed.txt"})
+
+    assert client.get(f"/files/{file_id}").json()["chunks"] == original_chunks
+
+
+def test_rename_file_rejects_empty_name(client):
+    node_id = setup_account_and_node(client)
+    file_id = client.post("/files", json=make_file_body(node_ids=(node_id,))).json()["id"]
+
+    response = client.patch(f"/files/{file_id}", json={"name": ""})
+
+    assert response.status_code == 422
+
+
 def test_delete_file_removes_its_chunks_and_placements(client):
     from coordinator.db import SessionLocal
     from coordinator.models import Chunk, ChunkPlacement
