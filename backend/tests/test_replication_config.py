@@ -16,7 +16,64 @@ def test_replication_config_defaults(client):
 
     body = client.get("/config/replication").json()
 
-    assert body == {"replication_factor": 3, "write_quorum": 2}
+    assert body == {
+        "replication_factor": 3,
+        "write_quorum": 2,
+        "registered_node_count": 0,
+        "under_replicated": True,
+        "eligible_node_count": 0,
+        "write_available": False,
+    }
+
+
+def test_under_replicated_clears_once_enough_nodes_register(client):
+    from tests.test_nodes import register_node
+
+    register(client)
+    client.post("/login", json={"username": "alice", "password": "hunter22"})
+    for i in range(3):
+        register_node(client, address=f"node-{i}:9000")
+
+    body = client.get("/config/replication").json()
+
+    assert body["registered_node_count"] == 3
+    assert body["under_replicated"] is False
+    assert body["eligible_node_count"] == 3
+    assert body["write_available"] is True
+
+
+def test_registered_count_can_hide_an_active_outage(client):
+    # A node that's down is still "registered", so under_replicated alone can
+    # read healthy while writes are failing — eligible_node_count and
+    # write_available are what actually reflect that.
+    from datetime import datetime, timedelta, timezone
+
+    from coordinator.db import SessionLocal
+    from coordinator.models import Node
+    from shared.placement import DOWN_GRACE_PERIOD, SUSPECT_THRESHOLD
+    from tests.test_nodes import register_node
+
+    register(client)
+    client.post("/login", json={"username": "alice", "password": "hunter22"})
+    for i in range(3):
+        register_node(client, address=f"node-{i}:9000")
+
+    db = SessionLocal()
+    try:
+        for node in db.query(Node).limit(2):
+            node.last_heartbeat_at = (
+                datetime.now(timezone.utc) - SUSPECT_THRESHOLD - DOWN_GRACE_PERIOD - timedelta(seconds=5)
+            )
+        db.commit()
+    finally:
+        db.close()
+
+    body = client.get("/config/replication").json()
+
+    assert body["registered_node_count"] == 3
+    assert body["under_replicated"] is False  # this alone would look fine
+    assert body["eligible_node_count"] == 1
+    assert body["write_available"] is False  # write_quorum is 2
 
 
 def _fresh_client(tmp_path, monkeypatch, **env):
@@ -45,6 +102,10 @@ def test_replication_config_reads_from_environment(tmp_path, monkeypatch):
         assert c.get("/config/replication").json() == {
             "replication_factor": 5,
             "write_quorum": 3,
+            "registered_node_count": 0,
+            "under_replicated": True,
+            "eligible_node_count": 0,
+            "write_available": False,
         }
 
 

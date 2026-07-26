@@ -29,6 +29,7 @@ from coordinator.security import (
     verify_account_password,
     verify_namespace_passphrase,
 )
+from shared.placement import build_ring, placement_candidates
 
 SESSION_COOKIE_NAME = "session"
 SESSION_LIFETIME = timedelta(days=int(os.environ.get("SESSION_LIFETIME_DAYS", "7")))
@@ -220,10 +221,21 @@ def namespace_salt(
 @app.get("/config/replication")
 def replication_config(
     account: Account = Depends(require_session), db: Session = Depends(get_db)
-) -> dict[str, int]:
+) -> dict[str, int | bool]:
+    replication_factor = int(get_required_setting(db, REPLICATION_FACTOR_KEY))
+    write_quorum = int(get_required_setting(db, WRITE_QUORUM_KEY))
+    nodes = db.query(Node).all()
+    eligible_node_count = sum(1 for node in nodes if node.to_placement_node().is_eligible)
+
     return {
-        "replication_factor": int(get_required_setting(db, REPLICATION_FACTOR_KEY)),
-        "write_quorum": int(get_required_setting(db, WRITE_QUORUM_KEY)),
+        "replication_factor": replication_factor,
+        "write_quorum": write_quorum,
+        "registered_node_count": len(nodes),
+        # registered_node_count can undercount a live outage (a down node is
+        # still "registered"), so this is a separate, honest write-health signal.
+        "under_replicated": len(nodes) < replication_factor,
+        "eligible_node_count": eligible_node_count,
+        "write_available": eligible_node_count >= write_quorum,
     }
 
 
@@ -291,3 +303,27 @@ def list_nodes(
     account: Account = Depends(require_session), db: Session = Depends(get_db)
 ) -> list[Node]:
     return db.query(Node).order_by(Node.id).all()
+
+
+@app.get("/placement/{chunk_id}", response_model=list[NodeOut])
+def placement_for_chunk(
+    chunk_id: str, account: Account = Depends(require_session), db: Session = Depends(get_db)
+) -> list[Node]:
+    nodes_by_id = {str(node.id): node for node in db.query(Node).all()}
+    placement_nodes = {node_id: node.to_placement_node() for node_id, node in nodes_by_id.items()}
+    ring = build_ring(list(placement_nodes.values()))
+
+    replication_factor = int(get_required_setting(db, REPLICATION_FACTOR_KEY))
+    candidate_ids = placement_candidates(ring, placement_nodes, chunk_id, replication_factor)
+
+    write_quorum = int(get_required_setting(db, WRITE_QUORUM_KEY))
+    if len(candidate_ids) < write_quorum:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                f"Only {len(candidate_ids)} node(s) available, "
+                f"need at least {write_quorum} to accept a write."
+            ),
+        )
+
+    return [nodes_by_id[node_id] for node_id in candidate_ids]
