@@ -3,11 +3,15 @@ from __future__ import annotations
 import hashlib
 import bisect
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 from enum import Enum
 
 VIRTUAL_NODES_PER_GB = 10
 MIN_VIRTUAL_NODES = 10
 GB = 1024**3
+
+SUSPECT_THRESHOLD = timedelta(seconds=30)
+DOWN_GRACE_PERIOD = timedelta(minutes=5)
 
 
 class NodeState(Enum):
@@ -15,6 +19,26 @@ class NodeState(Enum):
     SUSPECT = "suspect"
     DOWN = "down"
     DRAINING = "draining"
+
+
+def state_from_heartbeat(
+    last_heartbeat_at: datetime,
+    now: datetime,
+    draining: bool = False,
+    suspect_threshold: timedelta = SUSPECT_THRESHOLD,
+    down_grace_period: timedelta = DOWN_GRACE_PERIOD,
+) -> NodeState:
+    """Liveness is whatever the last heartbeat says it is. Draining is the one
+    state an operator sets, so it outranks the clock."""
+    if draining:
+        return NodeState.DRAINING
+
+    elapsed = now - last_heartbeat_at
+    if elapsed > suspect_threshold + down_grace_period:
+        return NodeState.DOWN
+    if elapsed > suspect_threshold:
+        return NodeState.SUSPECT
+    return NodeState.UP
 
 
 @dataclass(frozen=True)

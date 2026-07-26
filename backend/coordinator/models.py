@@ -2,12 +2,12 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, ForeignKey, String, UniqueConstraint
-from sqlalchemy import Enum as SAEnum
+from sqlalchemy import ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column
 
-from coordinator.db import Base
-from shared.placement import NodeState
+from coordinator.db import Base, UTCDateTime
+from shared.placement import Node as PlacementNode
+from shared.placement import NodeState, state_from_heartbeat
 
 
 def _utcnow() -> datetime:
@@ -27,19 +27,37 @@ class Account(Base):
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     username: Mapped[str] = mapped_column(String, unique=True, index=True)
     password_hash: Mapped[str] = mapped_column(String)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=_utcnow)
 
 
 class Node(Base):
     __tablename__ = "nodes"
-    __table_args__ = (UniqueConstraint("owner_account_id", "address"),)
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     owner_account_id: Mapped[int] = mapped_column(ForeignKey("accounts.id"))
-    address: Mapped[str] = mapped_column(String)
+    address: Mapped[str] = mapped_column(String, unique=True)
     capacity_budget_bytes: Mapped[int]
     free_disk_bytes: Mapped[int]
     used_bytes: Mapped[int]
-    state: Mapped[NodeState] = mapped_column(SAEnum(NodeState), default=NodeState.UP)
-    registered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
-    last_heartbeat_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    draining: Mapped[bool] = mapped_column(default=False)
+    registered_at: Mapped[datetime] = mapped_column(UTCDateTime, default=_utcnow)
+    last_heartbeat_at: Mapped[datetime] = mapped_column(UTCDateTime, default=_utcnow)
+
+    def to_placement_node(self) -> PlacementNode:
+        """The ring's view of this row. Capacity and eligibility rules live in
+        the placement module so there is only ever one copy of them."""
+        return PlacementNode(
+            node_id=str(self.id),
+            capacity_budget_bytes=self.capacity_budget_bytes,
+            free_disk_bytes=self.free_disk_bytes,
+            used_bytes=self.used_bytes,
+            state=state_from_heartbeat(self.last_heartbeat_at, _utcnow(), self.draining),
+        )
+
+    @property
+    def state(self) -> NodeState:
+        return self.to_placement_node().state
+
+    @property
+    def effective_capacity_bytes(self) -> int:
+        return self.to_placement_node().effective_capacity_bytes

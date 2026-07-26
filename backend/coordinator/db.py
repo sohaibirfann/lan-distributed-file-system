@@ -2,9 +2,31 @@ from __future__ import annotations
 
 import os
 from collections.abc import Iterator
+from datetime import datetime, timezone
 
-from sqlalchemy import create_engine
+from sqlalchemy import DateTime, create_engine
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
+from sqlalchemy.types import TypeDecorator
+
+
+class UTCDateTime(TypeDecorator):
+    """SQLite has no timezone support and hands back naive datetimes, which then
+    blow up any comparison against an aware now(). Store UTC, return UTC."""
+
+    impl = DateTime
+    cache_ok = True
+
+    def process_bind_param(self, value: datetime | None, dialect) -> datetime | None:
+        if value is None:
+            return None
+        if value.tzinfo is not None:
+            value = value.astimezone(timezone.utc)
+        return value.replace(tzinfo=None)
+
+    def process_result_value(self, value: datetime | None, dialect) -> datetime | None:
+        if value is None:
+            return None
+        return value.replace(tzinfo=timezone.utc)
 
 
 class Base(DeclarativeBase):

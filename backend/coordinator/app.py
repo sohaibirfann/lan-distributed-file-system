@@ -12,7 +12,14 @@ from sqlalchemy.orm import Session
 
 from coordinator.db import get_db, init_db, SessionLocal
 from coordinator.models import Account, Node, Settings
-from coordinator.schemas import AccountOut, LoginRequest, NodeOut, NodeRegisterRequest, RegisterRequest
+from coordinator.schemas import (
+    AccountOut,
+    LoginRequest,
+    NodeHeartbeatRequest,
+    NodeOut,
+    NodeRegisterRequest,
+    RegisterRequest,
+)
 from coordinator.security import (
     DUMMY_PASSWORD_HASH,
     create_session_token,
@@ -22,7 +29,6 @@ from coordinator.security import (
     verify_account_password,
     verify_namespace_passphrase,
 )
-from shared.placement import NodeState
 
 SESSION_COOKIE_NAME = "session"
 SESSION_LIFETIME = timedelta(days=int(os.environ.get("SESSION_LIFETIME_DAYS", "7")))
@@ -178,12 +184,15 @@ def namespace_salt(
     return {"salt": get_required_setting(db, NAMESPACE_SALT_KEY)}
 
 
-def _find_node(db: Session, owner_account_id: int, address: str) -> Node | None:
-    return (
-        db.query(Node)
-        .filter(Node.owner_account_id == owner_account_id, Node.address == address)
-        .first()
-    )
+def _find_node(db: Session, address: str) -> Node | None:
+    return db.query(Node).filter(Node.address == address).first()
+
+
+def _apply_report(node: Node, body: NodeRegisterRequest) -> None:
+    node.capacity_budget_bytes = body.capacity_budget_bytes
+    node.free_disk_bytes = body.free_disk_bytes
+    node.used_bytes = body.used_bytes
+    node.last_heartbeat_at = datetime.now(timezone.utc)
 
 
 @app.post("/nodes/register", response_model=NodeOut, status_code=201)
@@ -192,26 +201,50 @@ def register_node(
     account: Account = Depends(require_session),
     db: Session = Depends(get_db),
 ) -> Node:
-    node = _find_node(db, account.id, body.address)
-    is_new = node is None
-    if is_new:
-        node = Node(owner_account_id=account.id, address=body.address)
-        db.add(node)
-
-    node.capacity_budget_bytes = body.capacity_budget_bytes
-    node.free_disk_bytes = body.free_disk_bytes
-    node.used_bytes = body.used_bytes
-    node.state = NodeState.UP
-    node.last_heartbeat_at = datetime.now(timezone.utc)
-
-    if is_new:
-        try:
-            db.commit()
-        except IntegrityError:
-            db.rollback()
-            return register_node(body, account, db)
-    else:
+    node = _find_node(db, body.address)
+    if node is not None:
+        if node.owner_account_id != account.id:
+            raise HTTPException(status_code=409, detail="Address is already registered")
+        _apply_report(node, body)
         db.commit()
+        db.refresh(node)
+        return node
+
+    node = Node(owner_account_id=account.id, address=body.address)
+    _apply_report(node, body)
+    db.add(node)
+    try:
+        db.commit()
+    except IntegrityError:
+        # Someone else claimed this address between the lookup and the insert.
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Address is already registered")
 
     db.refresh(node)
     return node
+
+
+@app.post("/nodes/heartbeat", response_model=NodeOut)
+def heartbeat(
+    body: NodeHeartbeatRequest,
+    account: Account = Depends(require_session),
+    db: Session = Depends(get_db),
+) -> Node:
+    node = _find_node(db, body.address)
+    if node is None or node.owner_account_id != account.id:
+        raise HTTPException(status_code=404, detail="Node is not registered")
+
+    node.free_disk_bytes = body.free_disk_bytes
+    node.used_bytes = body.used_bytes
+    node.last_heartbeat_at = datetime.now(timezone.utc)
+
+    db.commit()
+    db.refresh(node)
+    return node
+
+
+@app.get("/nodes", response_model=list[NodeOut])
+def list_nodes(
+    account: Account = Depends(require_session), db: Session = Depends(get_db)
+) -> list[Node]:
+    return db.query(Node).order_by(Node.id).all()

@@ -1,14 +1,18 @@
 from collections import Counter
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from hypothesis import given, strategies as st
 
 from shared.placement import (
+    DOWN_GRACE_PERIOD,
     GB,
+    SUSPECT_THRESHOLD,
     Node,
     NodeState,
     build_ring,
     placement_candidates,
+    state_from_heartbeat,
 )
 
 
@@ -132,6 +136,31 @@ def test_placement_uses_a_partly_used_node_that_still_has_room():
     nodes_by_id = {n.node_id: n for n in nodes}
 
     assert placement_candidates(ring, nodes_by_id, "chunk-xyz", 1) == ["node-a"]
+
+
+@pytest.mark.parametrize(
+    "age, expected",
+    [
+        (timedelta(0), NodeState.UP),
+        (SUSPECT_THRESHOLD, NodeState.UP),
+        (SUSPECT_THRESHOLD + timedelta(seconds=1), NodeState.SUSPECT),
+        (SUSPECT_THRESHOLD + DOWN_GRACE_PERIOD, NodeState.SUSPECT),
+        (SUSPECT_THRESHOLD + DOWN_GRACE_PERIOD + timedelta(seconds=1), NodeState.DOWN),
+    ],
+)
+def test_state_from_heartbeat_boundaries(age, expected):
+    now = datetime(2026, 7, 26, 12, 0, tzinfo=timezone.utc)
+
+    assert state_from_heartbeat(now - age, now) is expected
+
+
+def test_draining_ignores_heartbeat_age():
+    now = datetime(2026, 7, 26, 12, 0, tzinfo=timezone.utc)
+
+    assert state_from_heartbeat(now, now, draining=True) is NodeState.DRAINING
+    assert (
+        state_from_heartbeat(now - timedelta(days=1), now, draining=True) is NodeState.DRAINING
+    )
 
 
 def test_virtual_node_weighting_is_capacity_proportional():
