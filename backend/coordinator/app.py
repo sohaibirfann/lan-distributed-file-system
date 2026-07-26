@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
+import logging
 import os
 import secrets
 from collections.abc import Callable
@@ -42,6 +44,8 @@ from coordinator.security import (
 )
 from shared.placement import Node as PlacementNode
 from shared.placement import NodeState, build_ring, placement_candidates, state_from_heartbeat
+
+logger = logging.getLogger(__name__)
 
 SESSION_COOKIE_NAME = "session"
 SESSION_LIFETIME = timedelta(days=int(os.environ.get("SESSION_LIFETIME_DAYS", "7")))
@@ -132,7 +136,18 @@ async def lifespan(app: FastAPI):
     init_db()
     seed_settings()
     load_replication_config()
-    yield
+
+    repair_interval_seconds = _int_from_env("REPAIR_INTERVAL_SECONDS", "60")
+    if repair_interval_seconds <= 0:
+        raise RuntimeError("REPAIR_INTERVAL_SECONDS must be positive.")
+
+    stop = asyncio.Event()
+    task = asyncio.create_task(repair_loop(stop, repair_interval_seconds))
+    try:
+        yield
+    finally:
+        stop.set()
+        await task  # waits for any in-flight repair cycle to actually finish
 
 
 def require_session(request: Request, db: Session = Depends(get_db)) -> Account:
@@ -665,3 +680,54 @@ def execute_repairs(
     replication_factor = int(get_required_setting(db, REPLICATION_FACTOR_KEY))
     plans = _compute_repair_plans(db, replication_factor)
     return [_execute_repair(db, plan, _default_node_client) for plan in plans]
+
+
+def run_one_repair_cycle() -> list[RepairResultOut]:
+    """Same work as POST /replication/repair, but with its own session — for
+    the background loop, which has no request-scoped one to reuse."""
+    db = SessionLocal()
+    try:
+        replication_factor = int(get_required_setting(db, REPLICATION_FACTOR_KEY))
+        plans = _compute_repair_plans(db, replication_factor)
+        results = [_execute_repair(db, plan, _default_node_client) for plan in plans]
+    finally:
+        db.close()
+
+    # Unlike the HTTP endpoint, nothing is watching this call directly — log
+    # it, or an unattended repair failing silently would never be noticed.
+    for result in results:
+        if result.error is not None or result.failed_node_ids:
+            logger.warning(
+                "chunk %s repair had failures: repaired=%s failed=%s error=%s",
+                result.chunk_id,
+                result.repaired_node_ids,
+                result.failed_node_ids,
+                result.error,
+            )
+        else:
+            logger.info(
+                "chunk %s repaired onto node(s) %s", result.chunk_id, result.repaired_node_ids
+            )
+
+    return results
+
+
+async def repair_loop(stop: asyncio.Event, interval_seconds: float) -> None:
+    # Same cooperative-stop pattern as the node's heartbeat_loop: cancelling a
+    # task blocked in asyncio.to_thread stops awaiting it, not the underlying
+    # OS thread, so waiting on `stop` is what lets an in-flight cycle actually
+    # finish before shutdown proceeds.
+    while not stop.is_set():
+        try:
+            await asyncio.wait_for(stop.wait(), timeout=interval_seconds)
+            return
+        except TimeoutError:
+            pass
+
+        try:
+            await asyncio.to_thread(run_one_repair_cycle)
+        except Exception as err:
+            # A cycle can fail in more ways than a single node heartbeat can
+            # (DB errors, multiple network calls) — one bad cycle logs and
+            # waits for the next interval rather than ending the loop.
+            logger.warning("repair cycle failed: %s", err)
