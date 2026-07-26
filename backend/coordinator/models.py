@@ -61,3 +61,33 @@ class Node(Base):
     @property
     def effective_capacity_bytes(self) -> int:
         return self.to_placement_node().effective_capacity_bytes
+
+
+class File(Base):
+    __tablename__ = "files"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String)
+    size_bytes: Mapped[int]
+    uploader_account_id: Mapped[int] = mapped_column(ForeignKey("accounts.id"))
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=_utcnow)
+
+
+class Chunk(Base):
+    __tablename__ = "chunks"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    file_id: Mapped[int] = mapped_column(ForeignKey("files.id"))
+    sequence_index: Mapped[int]
+    hash: Mapped[str] = mapped_column(String)
+    size_bytes: Mapped[int]
+
+
+class ChunkPlacement(Base):
+    __tablename__ = "chunk_placements"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    chunk_id: Mapped[int] = mapped_column(ForeignKey("chunks.id"))
+    node_id: Mapped[int] = mapped_column(ForeignKey("nodes.id"))
+    written_at: Mapped[datetime] = mapped_column(UTCDateTime, default=_utcnow)

@@ -11,9 +11,11 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from coordinator.db import get_db, init_db, SessionLocal
-from coordinator.models import Account, Node, Settings
+from coordinator.models import Account, Chunk, ChunkPlacement, File, Node, Settings
 from coordinator.schemas import (
     AccountOut,
+    FileCreateRequest,
+    FileOut,
     LoginRequest,
     NodeHeartbeatRequest,
     NodeOut,
@@ -327,3 +329,72 @@ def placement_for_chunk(
         )
 
     return [nodes_by_id[node_id] for node_id in candidate_ids]
+
+
+def _file_out(db: Session, file: File) -> FileOut:
+    chunk_count = db.query(Chunk).filter(Chunk.file_id == file.id).count()
+    return FileOut(
+        id=file.id,
+        name=file.name,
+        size_bytes=file.size_bytes,
+        uploader_account_id=file.uploader_account_id,
+        created_at=file.created_at,
+        updated_at=file.updated_at,
+        chunk_count=chunk_count,
+    )
+
+
+@app.post("/files", response_model=FileOut, status_code=201)
+def create_file(
+    body: FileCreateRequest,
+    account: Account = Depends(require_session),
+    db: Session = Depends(get_db),
+) -> FileOut:
+    sequence_indices = sorted(chunk.sequence_index for chunk in body.chunks)
+    if sequence_indices != list(range(len(body.chunks))):
+        raise HTTPException(
+            status_code=422, detail="chunk sequence_index values must be exactly 0..N-1"
+        )
+
+    declared_total = sum(chunk.size_bytes for chunk in body.chunks)
+    if declared_total != body.size_bytes:
+        raise HTTPException(
+            status_code=422,
+            detail=f"size_bytes ({body.size_bytes}) does not match the sum of chunk sizes ({declared_total})",
+        )
+
+    node_ids = {node_id for chunk in body.chunks for node_id in chunk.node_ids}
+    existing_node_ids = {
+        row.id for row in db.query(Node.id).filter(Node.id.in_(node_ids)).all()
+    }
+    missing = node_ids - existing_node_ids
+    if missing:
+        raise HTTPException(status_code=422, detail=f"unknown node_ids: {sorted(missing)}")
+
+    file = File(name=body.name, size_bytes=body.size_bytes, uploader_account_id=account.id)
+    db.add(file)
+    db.flush()  # assigns file.id for the chunks below, without committing yet
+
+    for chunk_in in body.chunks:
+        chunk = Chunk(
+            file_id=file.id,
+            sequence_index=chunk_in.sequence_index,
+            hash=chunk_in.hash,
+            size_bytes=chunk_in.size_bytes,
+        )
+        db.add(chunk)
+        db.flush()  # assigns chunk.id for the placements below
+        for node_id in chunk_in.node_ids:
+            db.add(ChunkPlacement(chunk_id=chunk.id, node_id=node_id))
+
+    db.commit()
+    db.refresh(file)
+    return _file_out(db, file)
+
+
+@app.get("/files", response_model=list[FileOut])
+def list_files(
+    account: Account = Depends(require_session), db: Session = Depends(get_db)
+) -> list[FileOut]:
+    files = db.query(File).order_by(File.id).all()
+    return [_file_out(db, file) for file in files]

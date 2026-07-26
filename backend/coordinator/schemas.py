@@ -20,6 +20,21 @@ def _validate_address(value: str) -> str:
     return value
 
 
+_CHUNK_HASH = re.compile(r"[0-9a-f]{64}")
+
+
+def _validate_chunk_hash(value: str) -> str:
+    if not _CHUNK_HASH.fullmatch(value):
+        raise ValueError("hash must be a 64-character lowercase sha256 hex digest")
+    return value
+
+
+def _validate_no_duplicate_node_ids(value: list[int]) -> list[int]:
+    if len(set(value)) != len(value):
+        raise ValueError("node_ids must not contain duplicates")
+    return value
+
+
 class RegisterRequest(BaseModel):
     username: str = Field(min_length=1, max_length=64)
     password: str = Field(min_length=1, max_length=1024)
@@ -69,3 +84,29 @@ class NodeOut(BaseModel):
     last_heartbeat_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class ChunkIn(BaseModel):
+    sequence_index: int = Field(ge=0)
+    hash: str
+    size_bytes: int = Field(gt=0)
+    node_ids: list[int] = Field(min_length=1)
+
+    _check_hash = field_validator("hash")(_validate_chunk_hash)
+    _check_node_ids = field_validator("node_ids")(_validate_no_duplicate_node_ids)
+
+
+class FileCreateRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=255)
+    size_bytes: int = Field(gt=0)
+    chunks: list[ChunkIn] = Field(min_length=1)
+
+
+class FileOut(BaseModel):
+    id: int
+    name: str
+    size_bytes: int
+    uploader_account_id: int
+    created_at: datetime
+    updated_at: datetime
+    chunk_count: int
