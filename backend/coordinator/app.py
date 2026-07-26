@@ -38,6 +38,8 @@ PUBLIC_PATHS = frozenset({"/health", "/register", "/login"})
 NAMESPACE_SALT_KEY = "namespace_salt"
 NAMESPACE_PASSPHRASE_HASH_KEY = "namespace_passphrase_hash"
 JWT_SECRET_KEY_KEY = "jwt_secret_key"
+REPLICATION_FACTOR_KEY = "replication_factor"
+WRITE_QUORUM_KEY = "write_quorum"
 
 
 def get_setting(db: Session, key: str) -> str | None:
@@ -82,10 +84,41 @@ def seed_settings() -> None:
         db.close()
 
 
+def _int_from_env(name: str, default: str) -> int:
+    raw = os.environ.get(name, default)
+    try:
+        return int(raw)
+    except ValueError:
+        raise RuntimeError(f"{name} must be a whole number, got {raw!r}.") from None
+
+
+def load_replication_config() -> None:
+    """RF/W are ordinary config, re-read from the environment on every start
+    (unlike the seeded secrets above), so a restart is how you change them."""
+    replication_factor = _int_from_env("REPLICATION_FACTOR", "3")
+    write_quorum = _int_from_env("WRITE_QUORUM", "2")
+
+    if replication_factor < 2:
+        raise RuntimeError("REPLICATION_FACTOR must be at least 2.")
+    if write_quorum < 1:
+        raise RuntimeError("WRITE_QUORUM must be at least 1, or nothing is ever durable.")
+    if write_quorum > replication_factor:
+        raise RuntimeError("WRITE_QUORUM cannot exceed REPLICATION_FACTOR.")
+
+    db = SessionLocal()
+    try:
+        set_setting(db, REPLICATION_FACTOR_KEY, str(replication_factor))
+        set_setting(db, WRITE_QUORUM_KEY, str(write_quorum))
+        db.commit()
+    finally:
+        db.close()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
     seed_settings()
+    load_replication_config()
     yield
 
 
@@ -182,6 +215,16 @@ def namespace_salt(
     account: Account = Depends(require_session), db: Session = Depends(get_db)
 ) -> dict[str, str]:
     return {"salt": get_required_setting(db, NAMESPACE_SALT_KEY)}
+
+
+@app.get("/config/replication")
+def replication_config(
+    account: Account = Depends(require_session), db: Session = Depends(get_db)
+) -> dict[str, int]:
+    return {
+        "replication_factor": int(get_required_setting(db, REPLICATION_FACTOR_KEY)),
+        "write_quorum": int(get_required_setting(db, WRITE_QUORUM_KEY)),
+    }
 
 
 def _find_node(db: Session, address: str) -> Node | None:
