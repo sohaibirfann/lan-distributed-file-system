@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { AuthScreen } from './AuthScreen'
+import { DashboardShell } from './DashboardShell'
 import { me, type Account } from './api'
 
 function App() {
@@ -18,7 +19,7 @@ function App() {
     return <AuthScreen onAuthenticated={setAccount} />
   }
 
-  return <p>Signed in as {account.username}.</p>
+  return <DashboardShell />
 }
 
 export default App

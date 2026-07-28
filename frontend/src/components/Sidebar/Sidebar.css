@@ -1,0 +1,39 @@
+.ds-sidebar {
+  width: 64px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--space-4) 0;
+  background: var(--color-bg);
+  border-right: 1px solid var(--color-border);
+}
+
+.ds-sidebar__group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.ds-sidebar__item {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-md);
+  border: none;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+
+.ds-sidebar__item:hover {
+  background: var(--color-surface-muted);
+}
+
+.ds-sidebar__item--active {
+  background: var(--color-ink);
+  color: var(--color-ink-contrast);
+}

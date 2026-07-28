@@ -10,6 +10,8 @@ export default defineConfig({
       '/register': 'http://localhost:8000',
       '/login': 'http://localhost:8000',
       '/me': 'http://localhost:8000',
+      '/nodes': 'http://localhost:8000',
+      '/events': 'http://localhost:8000',
     },
   },
 })
