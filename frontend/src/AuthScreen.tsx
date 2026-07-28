@@ -31,55 +31,51 @@ export function AuthScreen({ onAuthenticated }: { onAuthenticated: (account: Acc
 
   return (
     <div className="auth-screen">
-      <div className="auth-screen__form-side">
-        <form className="auth-form" onSubmit={handleSubmit}>
-          <h1 className="auth-form__heading">
-            {mode === 'login' ? 'Sign in' : 'Create an account'}
-          </h1>
+      <form className="auth-form" onSubmit={handleSubmit}>
+        <span className="auth-form__brand">Distributed File System</span>
+        <h1 className="auth-form__heading">
+          {mode === 'login' ? 'Sign in' : 'Create an account'}
+        </h1>
+        <TextField
+          label="Username"
+          value={username}
+          onChange={(e) => setUsername(e.target.value)}
+          required
+        />
+        <TextField
+          label="Password"
+          type="password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          required
+        />
+        {mode === 'register' && (
           <TextField
-            label="Username"
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-            required
-          />
-          <TextField
-            label="Password"
+            label="Namespace passphrase"
             type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
+            value={namespacePassphrase}
+            onChange={(e) => setNamespacePassphrase(e.target.value)}
             required
           />
-          {mode === 'register' && (
-            <TextField
-              label="Namespace passphrase"
-              type="password"
-              value={namespacePassphrase}
-              onChange={(e) => setNamespacePassphrase(e.target.value)}
-              required
-            />
-          )}
-          {error && <p className="auth-form__error">{error}</p>}
-          <div className="auth-form__actions">
-            <Button type="submit" disabled={submitting}>
-              {mode === 'login' ? 'Sign in' : 'Create account'}
-            </Button>
-            <Button
-              type="button"
-              variant="secondary"
-              disabled={submitting}
-              onClick={() => {
-                setMode(mode === 'login' ? 'register' : 'login')
-                setError(null)
-              }}
-            >
-              {mode === 'login' ? 'Create an account instead' : 'Sign in instead'}
-            </Button>
-          </div>
-        </form>
-      </div>
-      <div className="auth-screen__brand-side">
-        <span className="auth-screen__brand-title">Distributed File System</span>
-      </div>
+        )}
+        {error && <p className="auth-form__error">{error}</p>}
+        <div className="auth-form__actions">
+          <Button type="submit" disabled={submitting}>
+            {mode === 'login' ? 'Sign in' : 'Create account'}
+          </Button>
+          <Button
+            type="button"
+            variant="secondary"
+            disabled={submitting}
+            onClick={() => {
+              setMode(mode === 'login' ? 'register' : 'login')
+              setError(null)
+            }}
+          >
+            {mode === 'login' ? 'Create an account instead' : 'Sign in instead'}
+          </Button>
+        </div>
+      </form>
     </div>
   )
 }
