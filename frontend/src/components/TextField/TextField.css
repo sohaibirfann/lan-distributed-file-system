@@ -6,7 +6,7 @@
 }
 
 .ds-text-field__label {
-  font-size: 13px;
+  font-size: var(--font-size-sm);
   font-weight: 600;
   color: var(--color-text-muted);
 }
@@ -18,7 +18,7 @@
   background: var(--color-surface);
   color: var(--color-text);
   font-family: var(--font-sans);
-  font-size: 14px;
+  font-size: var(--font-size-base);
 }
 
 .ds-text-field__input:focus-visible {
@@ -36,6 +36,6 @@
 }
 
 .ds-text-field__error {
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   color: var(--color-danger);
 }
