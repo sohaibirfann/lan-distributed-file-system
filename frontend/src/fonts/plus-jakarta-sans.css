@@ -1,0 +1,8 @@
+/* Plus Jakarta Sans (variable font), self-hosted. SIL Open Font License. */
+@font-face {
+  font-family: 'Plus Jakarta Sans';
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('./PlusJakartaSans-Variable.woff2') format('woff2-variations');
+}
