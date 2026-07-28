@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Sidebar, type SidebarView } from './components/Sidebar/Sidebar'
 import { TopBar } from './components/TopBar/TopBar'
 import { OverviewPage } from './OverviewPage'
+import { FilesPage } from './FilesPage'
 import { getEvents, type Event } from './api'
 import './DashboardShell.css'
 
@@ -26,7 +27,7 @@ export function DashboardShell() {
         <TopBar title={TITLES[view]} events={events} />
         <div className="dashboard-shell__content">
           {view === 'overview' && <OverviewPage events={events} />}
-          {view === 'files' && <p>Coming soon.</p>}
+          {view === 'files' && <FilesPage />}
           {view === 'settings' && <p>Coming soon.</p>}
         </div>
       </div>

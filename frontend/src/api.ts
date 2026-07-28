@@ -26,12 +26,33 @@ export interface Event {
   message: string
 }
 
+export interface FileEntry {
+  id: number
+  name: string
+  size_bytes: number
+  uploader_account_id: number
+  created_at: string
+  updated_at: string
+  chunk_count: number
+}
+
 export class ApiError extends Error {}
+
+// FastAPI's own errors (401/404/etc.) send a plain string `detail`; Pydantic
+// validation errors (422) send an array of {msg, loc, ...} objects instead.
+function errorMessage(body: unknown, status: number): string {
+  const detail = (body as { detail?: unknown } | null)?.detail
+  if (typeof detail === 'string') return detail
+  if (Array.isArray(detail) && detail.length > 0) {
+    return detail.map((e) => e?.msg ?? JSON.stringify(e)).join('; ')
+  }
+  return `request failed (${status})`
+}
 
 async function parse<T>(response: Response): Promise<T> {
   const body = await response.json().catch(() => null)
   if (!response.ok) {
-    throw new ApiError(body?.detail ?? `request failed (${response.status})`)
+    throw new ApiError(errorMessage(body, response.status))
   }
   return body as T
 }
@@ -49,6 +70,24 @@ async function post(path: string, body: unknown): Promise<Account> {
     body: JSON.stringify(body),
   })
   return parse<Account>(response)
+}
+
+async function patch<T>(path: string, body: unknown): Promise<T> {
+  const response = await fetch(path, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify(body),
+  })
+  return parse<T>(response)
+}
+
+async function del(path: string): Promise<void> {
+  const response = await fetch(path, { method: 'DELETE', credentials: 'include' })
+  if (!response.ok) {
+    const body = await response.json().catch(() => null)
+    throw new ApiError(errorMessage(body, response.status))
+  }
 }
 
 export function register(
@@ -75,4 +114,16 @@ export function getNodes(): Promise<Node[]> {
 
 export function getEvents(): Promise<Event[]> {
   return get('/events')
+}
+
+export function getFiles(): Promise<FileEntry[]> {
+  return get('/files')
+}
+
+export function renameFile(id: number, name: string): Promise<FileEntry> {
+  return patch(`/files/${id}`, { name })
+}
+
+export function deleteFile(id: number): Promise<void> {
+  return del(`/files/${id}`)
 }
