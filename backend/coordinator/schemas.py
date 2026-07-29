@@ -55,6 +55,10 @@ class AccountOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class NamespaceVerifierRequest(BaseModel):
+    verifier: str = Field(min_length=1, max_length=4096)
+
+
 class NodeRegisterRequest(BaseModel):
     address: str = Field(min_length=1, max_length=256)
     capacity_budget_bytes: int = Field(gt=0)

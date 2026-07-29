@@ -36,7 +36,14 @@ export interface FileEntry {
   chunk_count: number
 }
 
-export class ApiError extends Error {}
+export class ApiError extends Error {
+  status: number
+
+  constructor(message: string, status: number) {
+    super(message)
+    this.status = status
+  }
+}
 
 // FastAPI's own errors (401/404/etc.) send a plain string `detail`; Pydantic
 // validation errors (422) send an array of {msg, loc, ...} objects instead.
@@ -52,7 +59,7 @@ function errorMessage(body: unknown, status: number): string {
 async function parse<T>(response: Response): Promise<T> {
   const body = await response.json().catch(() => null)
   if (!response.ok) {
-    throw new ApiError(errorMessage(body, response.status))
+    throw new ApiError(errorMessage(body, response.status), response.status)
   }
   return body as T
 }
@@ -82,11 +89,21 @@ async function patch<T>(path: string, body: unknown): Promise<T> {
   return parse<T>(response)
 }
 
+async function put<T>(path: string, body: unknown): Promise<T> {
+  const response = await fetch(path, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify(body),
+  })
+  return parse<T>(response)
+}
+
 async function del(path: string): Promise<void> {
   const response = await fetch(path, { method: 'DELETE', credentials: 'include' })
   if (!response.ok) {
     const body = await response.json().catch(() => null)
-    throw new ApiError(errorMessage(body, response.status))
+    throw new ApiError(errorMessage(body, response.status), response.status)
   }
 }
 
@@ -130,4 +147,12 @@ export function deleteFile(id: number): Promise<void> {
 
 export function getNamespaceSalt(): Promise<{ salt: string }> {
   return get('/namespace/salt')
+}
+
+export function getNamespaceVerifier(): Promise<{ verifier: string | null }> {
+  return get('/namespace/verifier')
+}
+
+export function putNamespaceVerifier(verifier: string): Promise<{ verifier: string }> {
+  return put('/namespace/verifier', { verifier })
 }

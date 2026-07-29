@@ -29,6 +29,7 @@ from coordinator.schemas import (
     FileOut,
     FileRenameRequest,
     LoginRequest,
+    NamespaceVerifierRequest,
     NodeHeartbeatRequest,
     NodeOut,
     NodeRegisterRequest,
@@ -56,6 +57,7 @@ SESSION_LIFETIME = timedelta(days=int(os.environ.get("SESSION_LIFETIME_DAYS", "7
 PUBLIC_PATHS = frozenset({"/health", "/register", "/login"})
 
 NAMESPACE_SALT_KEY = "namespace_salt"
+NAMESPACE_VERIFIER_KEY = "namespace_verifier"
 NAMESPACE_PASSPHRASE_HASH_KEY = "namespace_passphrase_hash"
 JWT_SECRET_KEY_KEY = "jwt_secret_key"
 REPLICATION_FACTOR_KEY = "replication_factor"
@@ -270,6 +272,27 @@ def namespace_salt(
     account: Account = Depends(require_session), db: Session = Depends(get_db)
 ) -> dict[str, str]:
     return {"salt": get_required_setting(db, NAMESPACE_SALT_KEY)}
+
+
+@app.get("/namespace/verifier")
+def get_namespace_verifier(
+    account: Account = Depends(require_session), db: Session = Depends(get_db)
+) -> dict[str, str | None]:
+    return {"verifier": get_setting(db, NAMESPACE_VERIFIER_KEY)}
+
+
+@app.put("/namespace/verifier")
+def put_namespace_verifier(
+    body: NamespaceVerifierRequest,
+    account: Account = Depends(require_session),
+    db: Session = Depends(get_db),
+) -> dict[str, str]:
+    # First-write-wins: the coordinator can't tell a "better" verifier apart.
+    if get_setting(db, NAMESPACE_VERIFIER_KEY) is not None:
+        raise HTTPException(status_code=409, detail="Namespace verifier is already set")
+    set_setting(db, NAMESPACE_VERIFIER_KEY, body.verifier)
+    db.commit()
+    return {"verifier": body.verifier}
 
 
 @app.get("/config/replication")
