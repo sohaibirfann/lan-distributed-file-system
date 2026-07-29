@@ -222,3 +222,16 @@ export function getFileDetail(id: number): Promise<FileDetail> {
 export function reportChunkUnavailable(chunkId: string, nodeId: number): Promise<void> {
   return post(`/chunks/${chunkId}/report-unavailable`, { node_id: nodeId })
 }
+
+export interface ChunkHealth {
+  chunk_id: number
+  file_id: number
+  sequence_index: number
+  healthy_node_ids: number[]
+  replication_factor: number
+  status: 'under_replicated' | 'unavailable'
+}
+
+export function getReplicationHealth(): Promise<ChunkHealth[]> {
+  return get('/replication/health')
+}
