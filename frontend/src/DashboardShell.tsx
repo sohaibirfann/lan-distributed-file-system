@@ -3,7 +3,8 @@ import { Sidebar, type SidebarView } from './components/Sidebar/Sidebar'
 import { TopBar } from './components/TopBar/TopBar'
 import { OverviewPage } from './OverviewPage'
 import { FilesPage } from './FilesPage'
-import { getEvents, type Event } from './api'
+import { SettingsPage } from './SettingsPage'
+import { getEvents, type Account, type Event } from './api'
 import './DashboardShell.css'
 
 const TITLES: Record<SidebarView, string> = {
@@ -12,7 +13,7 @@ const TITLES: Record<SidebarView, string> = {
   settings: 'Settings',
 }
 
-export function DashboardShell() {
+export function DashboardShell({ account }: { account: Account }) {
   const [view, setView] = useState<SidebarView>('overview')
   const [events, setEvents] = useState<Event[]>([])
 
@@ -28,7 +29,7 @@ export function DashboardShell() {
         <div className="dashboard-shell__content">
           {view === 'overview' && <OverviewPage events={events} />}
           {view === 'files' && <FilesPage />}
-          {view === 'settings' && <p>Coming soon.</p>}
+          {view === 'settings' && <SettingsPage account={account} />}
         </div>
       </div>
     </div>

@@ -13,6 +13,7 @@ export default defineConfig({
       '/nodes': 'http://localhost:8000',
       '/events': 'http://localhost:8000',
       '/files': 'http://localhost:8000',
+      '/namespace': 'http://localhost:8000',
     },
   },
 })

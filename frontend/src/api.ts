@@ -127,3 +127,7 @@ export function renameFile(id: number, name: string): Promise<FileEntry> {
 export function deleteFile(id: number): Promise<void> {
   return del(`/files/${id}`)
 }
+
+export function getNamespaceSalt(): Promise<{ salt: string }> {
+  return get('/namespace/salt')
+}

@@ -19,7 +19,7 @@ function App() {
     return <AuthScreen onAuthenticated={setAccount} />
   }
 
-  return <DashboardShell />
+  return <DashboardShell account={account} />
 }
 
 export default App
