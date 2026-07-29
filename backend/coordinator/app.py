@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 
 import httpx
 import jwt
-from fastapi import Depends, FastAPI, HTTPException, Path, Query, Request, Response
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Path, Query, Request, Response
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -396,9 +396,52 @@ def _release_surplus_placements(db: Session, node: Node) -> None:
             )
 
 
+def _count_chunks_with_different_placement(
+    db: Session,
+    replication_factor: int,
+    before_nodes: list[PlacementNode],
+    after_nodes: list[PlacementNode],
+) -> int:
+    before_ring = build_ring(before_nodes)
+    after_ring = build_ring(after_nodes)
+    before_by_id = {n.node_id: n for n in before_nodes}
+    after_by_id = {n.node_id: n for n in after_nodes}
+
+    moved = 0
+    for (chunk_hash,) in db.query(Chunk.hash).distinct().all():
+        before_set = placement_candidates(before_ring, before_by_id, chunk_hash, replication_factor)
+        after_set = placement_candidates(after_ring, after_by_id, chunk_hash, replication_factor)
+        if set(before_set) != set(after_set):
+            moved += 1
+    return moved
+
+
+def _log_placement_shift_for_new_node(
+    node_id: int, replication_factor: int, before_nodes: list[PlacementNode]
+) -> None:
+    # Own session -- runs as a background task, after node registration has already responded.
+    db = SessionLocal()
+    try:
+        node = db.get(Node, node_id)
+        if node is None:
+            return
+        after_nodes = before_nodes + [node.to_placement_node()]
+        moved = _count_chunks_with_different_placement(db, replication_factor, before_nodes, after_nodes)
+        if moved:
+            _record_event(
+                db,
+                "placement_shift",
+                f"node {node.id} ({node.address}) joined; {moved} chunk(s) would now map to different placement",
+            )
+            db.commit()
+    finally:
+        db.close()
+
+
 @app.post("/nodes/register", response_model=NodeOut, status_code=201)
 def register_node(
     body: NodeRegisterRequest,
+    background_tasks: BackgroundTasks,
     account: Account = Depends(require_session),
     db: Session = Depends(get_db),
 ) -> Node:
@@ -412,6 +455,9 @@ def register_node(
         _release_surplus_placements(db, node)
         return node
 
+    replication_factor = int(get_required_setting(db, REPLICATION_FACTOR_KEY))
+    before_nodes = [n.to_placement_node() for n in db.query(Node).all()]
+
     node = Node(owner_account_id=account.id, address=body.address)
     _apply_report(node, body)
     db.add(node)
@@ -423,6 +469,9 @@ def register_node(
         raise HTTPException(status_code=409, detail="Address is already registered")
 
     db.refresh(node)
+    background_tasks.add_task(
+        _log_placement_shift_for_new_node, node.id, replication_factor, before_nodes
+    )
     return node
 
 
@@ -889,12 +938,17 @@ def _record_node_state_transitions(db: Session) -> None:
     for node in db.query(Node).all():
         current_state = state_from_heartbeat(node.last_heartbeat_at, now, node.draining).value
         if current_state != node.last_known_state:
-            _record_event(
-                db,
-                "node_state_transition",
+            message = (
                 f"node {node.id} ({node.address}) transitioned "
-                f"{node.last_known_state} -> {current_state}",
+                f"{node.last_known_state} -> {current_state}"
             )
+            if current_state == NodeState.DOWN.value:
+                placement_count = (
+                    db.query(ChunkPlacement).filter(ChunkPlacement.node_id == node.id).count()
+                )
+                if placement_count:
+                    message += f"; {placement_count} chunk(s) were placed on it"
+            _record_event(db, "node_state_transition", message)
             node.last_known_state = current_state
     db.commit()
 

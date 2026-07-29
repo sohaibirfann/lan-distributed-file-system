@@ -22,7 +22,7 @@ export interface Node {
 export interface Event {
   id: number
   created_at: string
-  kind: 'node_state_transition' | 'repair'
+  kind: 'node_state_transition' | 'repair' | 'chunk_unavailable' | 'placement_shift'
   message: string
 }
 

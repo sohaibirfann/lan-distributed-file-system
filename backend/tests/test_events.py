@@ -156,6 +156,68 @@ def test_manual_repair_endpoint_also_records_an_event(client, tmp_path, monkeypa
     assert any(e["kind"] == "node_state_transition" for e in events)
 
 
+def test_node_join_reports_how_many_chunks_would_move(client):
+    register(client)
+    login(client)
+    node_ids = [register_node(client, address=f"n{i}:9000").json()["id"] for i in range(3)]
+
+    # Enough chunks that the new node's ring positions are guaranteed to shift at least one.
+    for i in range(50):
+        data = f"chunk payload {i}".encode()
+        client.post(
+            "/files",
+            json={
+                "name": f"f{i}.bin",
+                "size_bytes": len(data),
+                "chunks": [
+                    {
+                        "sequence_index": 0,
+                        "hash": chunk_id_for(data),
+                        "size_bytes": len(data),
+                        "node_ids": node_ids,
+                    }
+                ],
+            },
+        )
+
+    register_node(client, address="new-node:9000")
+
+    events = client.get("/events").json()
+    shift_events = [e for e in events if e["kind"] == "placement_shift"]
+    assert len(shift_events) == 1
+    assert "joined" in shift_events[0]["message"]
+    assert "new-node:9000" in shift_events[0]["message"]
+
+
+def test_node_join_reports_nothing_when_no_chunks_exist_yet(client):
+    register(client)
+    login(client)
+    register_node(client, address="n0:9000")
+
+    register_node(client, address="n1:9000")
+
+    events = client.get("/events").json()
+    assert not any(e["kind"] == "placement_shift" for e in events)
+
+
+def test_node_going_down_reports_how_many_chunks_were_placed_on_it(client):
+    register(client)
+    login(client)
+    node_ids = [register_node(client, address=f"n{i}:9000").json()["id"] for i in range(3)]
+    client.post("/files", json=make_file_body(chunk_sizes=(100,), node_ids=node_ids))
+
+    mark_down("n0:9000")
+
+    import coordinator.app as coordinator_app_module
+
+    coordinator_app_module.run_one_repair_cycle()
+
+    events = client.get("/events").json()
+    transitions = [e for e in events if e["kind"] == "node_state_transition" and "up -> down" in e["message"]]
+    assert len(transitions) == 1
+    assert "chunk(s) were placed on it" in transitions[0]["message"]
+
+
 def test_report_chunk_unavailable_requires_session(client):
     response = client.post("/chunks/somehash/report-unavailable", json={"node_id": 1})
     assert response.status_code == 401

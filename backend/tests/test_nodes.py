@@ -80,7 +80,7 @@ def test_racing_registration_conflicts_instead_of_looping(client, monkeypatch):
     from coordinator.db import SessionLocal
     from coordinator.models import Node
     from coordinator.schemas import NodeRegisterRequest
-    from fastapi import HTTPException
+    from fastapi import BackgroundTasks, HTTPException
 
     register(client)
     login(client)
@@ -108,7 +108,7 @@ def test_racing_registration_conflicts_instead_of_looping(client, monkeypatch):
             used_bytes=0,
         )
         try:
-            app_module.register_node(body, acct, db)
+            app_module.register_node(body, BackgroundTasks(), acct, db)
             raise AssertionError("expected a 409, not a successful registration")
         except HTTPException as err:
             assert err.status_code == 409
