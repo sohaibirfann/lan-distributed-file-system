@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react'
-import { Bell, Clock, Search } from 'lucide-react'
+import { Bell, Clock, Search, WifiOff } from 'lucide-react'
 import type { Event } from '../../api'
 import './TopBar.css'
+
+const CONNECTION_CHECK_INTERVAL_MS = 10_000
 
 function useClock(): string {
   const [now, setNow] = useState(() => new Date())
@@ -12,6 +14,30 @@ function useClock(): string {
   }, [])
 
   return now.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+}
+
+function useConnectionState(): 'online' | 'offline' {
+  const [state, setState] = useState<'online' | 'offline'>('online')
+
+  useEffect(() => {
+    let cancelled = false
+    async function check() {
+      try {
+        const response = await fetch('/health', { cache: 'no-store' })
+        if (!cancelled) setState(response.ok ? 'online' : 'offline')
+      } catch {
+        if (!cancelled) setState('offline')
+      }
+    }
+    check()
+    const id = setInterval(check, CONNECTION_CHECK_INTERVAL_MS)
+    return () => {
+      cancelled = true
+      clearInterval(id)
+    }
+  }, [])
+
+  return state
 }
 
 function NotificationBell({ events }: { events: Event[] }) {
@@ -62,6 +88,7 @@ export interface TopBarProps {
 /** The app's header bar: title, search, clock, and notifications. */
 export function TopBar({ title, events }: TopBarProps) {
   const clock = useClock()
+  const connection = useConnectionState()
 
   return (
     <header className="ds-top-bar">
@@ -71,10 +98,17 @@ export function TopBar({ title, events }: TopBarProps) {
           <Search size={16} />
           <input type="search" placeholder="Search" aria-label="Search" />
         </div>
-        <div className="ds-top-bar__chip">
-          <Clock size={14} />
-          {clock}
-        </div>
+        {connection === 'offline' ? (
+          <div className="ds-top-bar__chip ds-top-bar__chip--offline">
+            <WifiOff size={14} />
+            Disconnected
+          </div>
+        ) : (
+          <div className="ds-top-bar__chip">
+            <Clock size={14} />
+            {clock}
+          </div>
+        )}
         <NotificationBell events={events} />
       </div>
     </header>
