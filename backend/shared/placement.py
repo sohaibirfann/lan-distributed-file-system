@@ -93,6 +93,7 @@ def placement_candidates(
     nodes_by_id: dict[str, Node],
     chunk_id: str,
     replication_factor: int,
+    exclude: frozenset[str] = frozenset(),
 ) -> list[str]:
     if not ring or replication_factor <= 0:
         return []
@@ -102,7 +103,7 @@ def placement_candidates(
     start_index = bisect.bisect_left(positions, start_position) % len(ring)
 
     chosen: list[str] = []
-    seen: set[str] = set()
+    seen: set[str] = set(exclude)
     for offset in range(len(ring)):
         _, node_id = ring[(start_index + offset) % len(ring)]
         if node_id in seen:

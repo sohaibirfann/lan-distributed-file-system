@@ -2,7 +2,7 @@ from collections import Counter
 from datetime import datetime, timedelta, timezone
 
 import pytest
-from hypothesis import given, strategies as st
+from hypothesis import example, given, strategies as st
 
 from shared.placement import (
     DOWN_GRACE_PERIOD,
@@ -82,6 +82,20 @@ def test_placement_degrades_when_fewer_eligible_nodes_than_rf():
 def test_placement_returns_empty_with_no_nodes():
     chosen = placement_candidates([], {}, "chunk-xyz", replication_factor=3)
     assert chosen == []
+
+
+def test_placement_excludes_given_node_ids():
+    nodes = [make_node(f"node-{i}") for i in range(5)]
+    ring = build_ring(nodes)
+    nodes_by_id = {n.node_id: n for n in nodes}
+
+    first = placement_candidates(ring, nodes_by_id, "chunk-abc123", replication_factor=3)
+    retry = placement_candidates(
+        ring, nodes_by_id, "chunk-abc123", replication_factor=3, exclude=frozenset(first)
+    )
+
+    assert len(retry) == 2  # only 2 nodes left once the first 3 are excluded
+    assert set(retry).isdisjoint(first)
 
 
 def test_placement_returns_empty_for_non_positive_replication_factor():
@@ -222,3 +236,37 @@ def test_placement_invariants_hold_for_any_ring(specs, chunk_id, replication_fac
     assert len(chosen) == len(set(chosen))
     assert set(chosen) <= set(eligible)
     assert chosen == placement_candidates(ring, nodes_by_id, chunk_id, replication_factor)
+
+
+@example(
+    specs=[
+        {"capacity_gb": 10, "free_disk_gb": 10, "used_gb": 0, "state": NodeState.UP}
+        for _ in range(4)
+    ],
+    chunk_id="chunk-with-several-eligible-nodes",
+    replication_factor=3,
+    exclude_every_other=True,
+)
+@given(
+    specs=node_specs,
+    chunk_id=st.text(min_size=1, max_size=40),
+    replication_factor=st.integers(min_value=0, max_value=5),
+    exclude_every_other=st.booleans(),
+)
+def test_placement_exclude_invariants_hold_for_any_ring(
+    specs, chunk_id, replication_factor, exclude_every_other
+):
+    nodes = [make_node(f"node-{i}", **spec) for i, spec in enumerate(specs)]
+    ring = build_ring(nodes)
+    nodes_by_id = {n.node_id: n for n in nodes}
+    eligible = [n.node_id for n in nodes if n.is_eligible]
+    excluded = frozenset(eligible[::2]) if exclude_every_other else frozenset()
+
+    chosen = placement_candidates(
+        ring, nodes_by_id, chunk_id, replication_factor, exclude=excluded
+    )
+
+    still_eligible = [n for n in eligible if n not in excluded]
+    assert len(chosen) == min(replication_factor, len(still_eligible))
+    assert set(chosen).isdisjoint(excluded)
+    assert set(chosen) <= set(still_eligible)

@@ -12,7 +12,7 @@ from datetime import datetime, timedelta, timezone
 
 import httpx
 import jwt
-from fastapi import Depends, FastAPI, HTTPException, Request, Response
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -459,14 +459,19 @@ def list_events(
 
 @app.get("/placement/{chunk_id}", response_model=list[NodeOut])
 def placement_for_chunk(
-    chunk_id: str, account: Account = Depends(require_session), db: Session = Depends(get_db)
+    chunk_id: str,
+    exclude: list[str] = Query([]),
+    account: Account = Depends(require_session),
+    db: Session = Depends(get_db),
 ) -> list[Node]:
     nodes_by_id = {str(node.id): node for node in db.query(Node).all()}
     placement_nodes = {node_id: node.to_placement_node() for node_id, node in nodes_by_id.items()}
     ring = build_ring(list(placement_nodes.values()))
 
     replication_factor = int(get_required_setting(db, REPLICATION_FACTOR_KEY))
-    candidate_ids = placement_candidates(ring, placement_nodes, chunk_id, replication_factor)
+    candidate_ids = placement_candidates(
+        ring, placement_nodes, chunk_id, replication_factor, exclude=frozenset(exclude)
+    )
 
     write_quorum = int(get_required_setting(db, WRITE_QUORUM_KEY))
     if len(candidate_ids) < write_quorum:

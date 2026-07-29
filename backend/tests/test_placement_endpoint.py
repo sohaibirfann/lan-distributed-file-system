@@ -67,6 +67,24 @@ def test_placement_degrades_below_replication_factor_but_above_quorum(client):
     assert len(response.json()) == 2  # below the default RF of 3, at the default W of 2
 
 
+def test_placement_exclude_returns_replacement_nodes(client):
+    register(client)
+    login(client)
+    for i in range(5):
+        register_node(client, address=f"node-{i}:9000")
+
+    first = client.get("/placement/chunk-1").json()
+    first_addresses = [n["address"] for n in first]
+
+    response = client.get(
+        "/placement/chunk-1", params={"exclude": [str(n["id"]) for n in first]}
+    )
+
+    retry_addresses = [n["address"] for n in response.json()]
+    assert set(retry_addresses).isdisjoint(first_addresses)
+    assert len(retry_addresses) == 2  # only 2 of the 5 registered nodes are left
+
+
 def test_placement_is_deterministic_for_the_same_chunk(client):
     register(client)
     login(client)
