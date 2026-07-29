@@ -7,6 +7,7 @@ import os
 import secrets
 import time
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 
@@ -899,7 +900,31 @@ def _record_node_state_transitions(db: Session) -> None:
 
 
 def _execute_repair_plans(db: Session, plans: list[RepairPlanOut]) -> list[RepairResultOut]:
-    results = [_execute_repair(db, plan, _default_node_client) for plan in plans]
+    if not plans:
+        return []
+
+    def run_one(plan: RepairPlanOut) -> RepairResultOut:
+        # Own session per task -- SQLAlchemy sessions aren't thread-safe.
+        plan_db = SessionLocal()
+        try:
+            return _execute_repair(plan_db, plan, _default_node_client)
+        except Exception as err:
+            # Fail this one chunk, not the whole batch's event log along with it.
+            return RepairResultOut(
+                chunk_id=plan.chunk_id,
+                repaired_node_ids=[],
+                failed_node_ids=list(plan.target_node_ids),
+                error=str(err),
+            )
+        finally:
+            plan_db.close()
+
+    concurrency = _int_from_env("REPAIR_CONCURRENCY", "3")
+    if concurrency <= 0:
+        raise RuntimeError("REPAIR_CONCURRENCY must be positive.")
+
+    with ThreadPoolExecutor(max_workers=concurrency) as executor:
+        results = list(executor.map(run_one, plans))
     for result in results:
         if result.error is not None or result.failed_node_ids:
             message = (

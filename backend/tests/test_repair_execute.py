@@ -2,6 +2,7 @@ import hashlib
 import importlib
 from contextlib import ExitStack
 
+import pytest
 from fastapi.testclient import TestClient
 
 from tests.test_auth import register
@@ -253,6 +254,178 @@ def test_repair_continues_to_other_targets_when_one_target_is_unreachable(
         assert len(results) == 1
         assert set(results[0]["repaired_node_ids"]) == {spare_ok["id"]}
         assert results[0]["error"] is None  # overall repair succeeded even though one target failed
+
+
+def test_repair_respects_the_configured_concurrency_cap(client, monkeypatch):
+    import threading
+    import time
+
+    register(client)
+    login(client)
+    node_a = register_node(client, address="a:9000").json()
+    node_b = register_node(client, address="b:9000").json()
+    spare_ids = [register_node(client, address=f"spare{i}:9000").json()["id"] for i in range(6)]
+
+    chunk_count = 6
+    chunks = []
+    for i in range(chunk_count):
+        data = f"chunk bytes {i}".encode()
+        chunks.append(
+            {
+                "sequence_index": i,
+                "hash": chunk_id_for(data),
+                "size_bytes": len(data),
+                "node_ids": [node_a["id"], node_b["id"]],
+            }
+        )
+    client.post(
+        "/files",
+        json={"name": "f.bin", "size_bytes": sum(c["size_bytes"] for c in chunks), "chunks": chunks},
+    )
+
+    mark_down("a:9000")
+
+    in_flight = 0
+    max_in_flight = 0
+    lock = threading.Lock()
+
+    class SlowClient:
+        def get(self, url):
+            nonlocal in_flight, max_in_flight
+            with lock:
+                in_flight += 1
+                max_in_flight = max(max_in_flight, in_flight)
+            time.sleep(0.05)
+            with lock:
+                in_flight -= 1
+
+            class Response:
+                status_code = 200
+                content = b"whatever the source has"
+
+            return Response()
+
+        def put(self, url, content):
+            class Response:
+                status_code = 200
+
+            return Response()
+
+    monkeypatch.setenv("REPAIR_CONCURRENCY", "2")
+    import coordinator.app as coordinator_app_module
+
+    monkeypatch.setattr(coordinator_app_module, "_default_node_client", lambda address: SlowClient())
+
+    response = client.post("/replication/repair")
+
+    assert response.status_code == 200
+    assert len(response.json()) == chunk_count
+    assert max_in_flight <= 2
+    assert max_in_flight > 1  # otherwise this test wouldn't be proving concurrency happened at all
+
+
+def test_repair_batch_survives_one_chunk_raising_an_unexpected_error(client, monkeypatch):
+    register(client)
+    login(client)
+    node_a = register_node(client, address="a:9000").json()
+    node_b = register_node(client, address="b:9000").json()
+    register_node(client, address="spare0:9000")
+    register_node(client, address="spare1:9000")
+
+    data0 = b"chunk bytes 0"
+    data1 = b"chunk bytes 1"
+    buggy_hash = chunk_id_for(data0)
+    fine_hash = chunk_id_for(data1)
+    client.post(
+        "/files",
+        json={
+            "name": "f.bin",
+            "size_bytes": len(data0) + len(data1),
+            "chunks": [
+                {
+                    "sequence_index": 0,
+                    "hash": buggy_hash,
+                    "size_bytes": len(data0),
+                    "node_ids": [node_a["id"], node_b["id"]],
+                },
+                {
+                    "sequence_index": 1,
+                    "hash": fine_hash,
+                    "size_bytes": len(data1),
+                    "node_ids": [node_a["id"], node_b["id"]],
+                },
+            ],
+        },
+    )
+
+    mark_down("a:9000")
+
+    class Response:
+        status_code = 200
+        content = data1
+
+    class SourceClient:
+        # Fail only the buggy chunk's fetch, identified by hash in the URL.
+        def get(self, url):
+            if buggy_hash in url:
+                raise ValueError("simulated bug, not an httpx error")
+            return Response()
+
+        def put(self, url, content):
+            return Response()
+
+    import coordinator.app as coordinator_app_module
+
+    monkeypatch.setattr(coordinator_app_module, "_default_node_client", lambda address: SourceClient())
+    monkeypatch.setenv("REPAIR_CONCURRENCY", "2")
+
+    response = client.post("/replication/repair")
+
+    assert response.status_code == 200  # one bad chunk must not 500 the whole batch
+    results = response.json()
+    assert len(results) == 2
+    failed = [r for r in results if r["error"] is not None]
+    succeeded = [r for r in results if r["error"] is None]
+    assert len(failed) == 1
+    assert len(succeeded) == 1
+    assert "simulated bug" in failed[0]["error"]
+
+    events = client.get("/events").json()
+    repair_events = [e for e in events if e["kind"] == "repair"]
+    assert len(repair_events) == 2  # every result got logged, including the failed one
+    assert any("simulated bug" in e["message"] for e in repair_events)
+
+
+def test_repair_rejects_a_non_positive_concurrency_setting(client, monkeypatch):
+    register(client)
+    login(client)
+    node_a = register_node(client, address="a:9000").json()
+    node_b = register_node(client, address="b:9000").json()
+    register_node(client, address="spare:9000")
+
+    data = b"chunk bytes"
+    client.post(
+        "/files",
+        json={
+            "name": "f.bin",
+            "size_bytes": len(data),
+            "chunks": [
+                {
+                    "sequence_index": 0,
+                    "hash": chunk_id_for(data),
+                    "size_bytes": len(data),
+                    "node_ids": [node_a["id"], node_b["id"]],
+                }
+            ],
+        },
+    )
+    mark_down("a:9000")
+    monkeypatch.setenv("REPAIR_CONCURRENCY", "0")
+
+    with pytest.raises(RuntimeError, match="REPAIR_CONCURRENCY"):
+        from coordinator.app import run_one_repair_cycle
+
+        run_one_repair_cycle()
 
 
 def test_execute_repair_handles_a_source_node_that_no_longer_exists(client):
