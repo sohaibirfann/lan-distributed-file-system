@@ -217,8 +217,23 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+def issue_session_cookie(response: Response, request: Request, account: Account, db: Session) -> None:
+    jwt_secret_key = get_required_setting(db, JWT_SECRET_KEY_KEY)
+    token = create_session_token(account.id, jwt_secret_key, SESSION_LIFETIME)
+    response.set_cookie(
+        key=SESSION_COOKIE_NAME,
+        value=token,
+        httponly=True,
+        samesite="lax",
+        secure=request.url.scheme == "https",
+        max_age=int(SESSION_LIFETIME.total_seconds()),
+    )
+
+
 @app.post("/register", response_model=AccountOut, status_code=201)
-def register(body: RegisterRequest, db: Session = Depends(get_db)) -> Account:
+def register(
+    body: RegisterRequest, request: Request, response: Response, db: Session = Depends(get_db)
+) -> Account:
     namespace_passphrase_hash = get_required_setting(db, NAMESPACE_PASSPHRASE_HASH_KEY)
     if not verify_namespace_passphrase(body.namespace_passphrase, namespace_passphrase_hash):
         raise HTTPException(status_code=401, detail="Invalid namespace passphrase")
@@ -234,6 +249,7 @@ def register(body: RegisterRequest, db: Session = Depends(get_db)) -> Account:
     db.add(account)
     db.commit()
     db.refresh(account)
+    issue_session_cookie(response, request, account, db)
     return account
 
 
@@ -248,17 +264,7 @@ def login(body: LoginRequest, request: Request, response: Response, db: Session 
     if account is None or not password_valid:
         raise invalid_credentials
 
-    jwt_secret_key = get_required_setting(db, JWT_SECRET_KEY_KEY)
-    token = create_session_token(account.id, jwt_secret_key, SESSION_LIFETIME)
-
-    response.set_cookie(
-        key=SESSION_COOKIE_NAME,
-        value=token,
-        httponly=True,
-        samesite="lax",
-        secure=request.url.scheme == "https",
-        max_age=int(SESSION_LIFETIME.total_seconds()),
-    )
+    issue_session_cookie(response, request, account, db)
     return account
 
 

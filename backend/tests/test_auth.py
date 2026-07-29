@@ -61,6 +61,22 @@ def test_register_rejects_duplicate_username(client):
     assert second.status_code == 409
 
 
+def test_register_sets_session_cookie(client):
+    response = register(client)
+
+    assert response.status_code == 201
+    assert "session" in response.cookies
+
+
+def test_protected_endpoint_works_immediately_after_register(client):
+    register(client)
+
+    response = client.get("/me")
+
+    assert response.status_code == 200
+    assert response.json()["username"] == "alice"
+
+
 def test_login_success_sets_session_cookie(client):
     register(client)
 
