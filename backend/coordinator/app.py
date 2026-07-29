@@ -10,10 +10,12 @@ from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
+from pathlib import Path as FilePath
 
 import httpx
 import jwt
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Path, Query, Request, Response
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -1100,3 +1102,11 @@ async def gc_sweep_loop(stop: asyncio.Event, interval_seconds: float) -> None:
             await asyncio.to_thread(run_one_gc_cycle)
         except Exception as err:
             logger.warning("gc sweep cycle failed: %s", err)
+
+
+# Mounted last so it never shadows an API route above; skipped if unbuilt. Everything
+# under this directory is unauthenticated -- nothing sensitive belongs in a build output.
+_default_dashboard_dist = FilePath(__file__).resolve().parent.parent.parent / "frontend" / "dist"
+_dashboard_dist = FilePath(os.environ.get("DASHBOARD_DIST_DIR", str(_default_dashboard_dist)))
+if _dashboard_dist.is_dir():
+    app.mount("/", StaticFiles(directory=_dashboard_dist, html=True), name="dashboard")

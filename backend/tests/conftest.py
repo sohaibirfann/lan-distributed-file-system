@@ -9,6 +9,8 @@ def client(tmp_path, monkeypatch):
     db_path = tmp_path / "coordinator.db"
     monkeypatch.setenv("COORDINATOR_DB_PATH", str(db_path))
     monkeypatch.setenv("NAMESPACE_PASSPHRASE", "correct horse battery staple")
+    # Pinned absent so tests don't depend on whether a local frontend build exists.
+    monkeypatch.setenv("DASHBOARD_DIST_DIR", str(tmp_path / "no-dashboard-dist"))
 
     import coordinator.app as app_module
     import coordinator.db as db_module
