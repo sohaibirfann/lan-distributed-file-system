@@ -23,6 +23,14 @@ export async function encryptChunk(chunk: Uint8Array, key: Uint8Array): Promise<
   return combined
 }
 
+export async function decryptChunk(encryptedChunk: Uint8Array, key: Uint8Array): Promise<Uint8Array> {
+  await sodium.ready
+  const nonceLength = sodium.crypto_aead_chacha20poly1305_IETF_NPUBBYTES
+  const nonce = encryptedChunk.slice(0, nonceLength)
+  const ciphertext = encryptedChunk.slice(nonceLength)
+  return sodium.crypto_aead_chacha20poly1305_ietf_decrypt(null, ciphertext, null, nonce, key)
+}
+
 export async function hashChunk(encryptedChunk: Uint8Array): Promise<string> {
   const digest = await crypto.subtle.digest('SHA-256', encryptedChunk as BufferSource)
   await sodium.ready

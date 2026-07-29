@@ -156,6 +156,53 @@ def test_manual_repair_endpoint_also_records_an_event(client, tmp_path, monkeypa
     assert any(e["kind"] == "node_state_transition" for e in events)
 
 
+def test_report_chunk_unavailable_requires_session(client):
+    response = client.post("/chunks/somehash/report-unavailable", json={"node_id": 1})
+    assert response.status_code == 401
+
+
+def test_report_chunk_unavailable_records_an_event(client):
+    register(client)
+    login(client)
+    node = register_node(client, address="a:9000").json()
+
+    response = client.post(
+        f"/chunks/{'a' * 64}/report-unavailable", json={"node_id": node["id"]}
+    )
+
+    assert response.status_code == 204
+    events = client.get("/events").json()
+    assert any(
+        e["kind"] == "chunk_unavailable"
+        and "a" * 64 in e["message"]
+        and str(node["id"]) in e["message"]
+        for e in events
+    )
+
+
+def test_report_chunk_unavailable_rejects_malformed_chunk_id(client):
+    register(client)
+    login(client)
+    node = register_node(client, address="a:9000").json()
+
+    response = client.post(
+        "/chunks/not-a-real-hash/report-unavailable", json={"node_id": node["id"]}
+    )
+
+    assert response.status_code == 422
+
+
+def test_report_chunk_unavailable_rejects_unknown_node(client):
+    register(client)
+    login(client)
+
+    response = client.post(
+        f"/chunks/{'a' * 64}/report-unavailable", json={"node_id": 999999}
+    )
+
+    assert response.status_code == 404
+
+
 def test_events_have_no_effect_when_nothing_changes(client):
     register(client)
     login(client)

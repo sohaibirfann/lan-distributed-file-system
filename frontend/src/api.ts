@@ -192,3 +192,33 @@ export interface FileCreateBody {
 export function createFile(body: FileCreateBody): Promise<FileEntry> {
   return post<FileEntry>('/files', body)
 }
+
+export interface ChunkPlacement {
+  node_id: number
+  address: string
+}
+
+export interface ChunkDetail {
+  sequence_index: number
+  hash: string
+  size_bytes: number
+  nodes: ChunkPlacement[]
+}
+
+export interface FileDetail {
+  id: number
+  name: string
+  size_bytes: number
+  uploader_account_id: number
+  created_at: string
+  updated_at: string
+  chunks: ChunkDetail[]
+}
+
+export function getFileDetail(id: number): Promise<FileDetail> {
+  return get(`/files/${id}`)
+}
+
+export function reportChunkUnavailable(chunkId: string, nodeId: number): Promise<void> {
+  return post(`/chunks/${chunkId}/report-unavailable`, { node_id: nodeId })
+}

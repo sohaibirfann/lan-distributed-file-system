@@ -10,11 +10,11 @@
   margin-bottom: var(--space-3);
 }
 
-.files-page__upload-progress {
+.files-page__transfer-progress {
   margin-bottom: var(--space-4);
 }
 
-.files-page__upload-progress-header {
+.files-page__transfer-progress-header {
   display: flex;
   justify-content: space-between;
   font-size: var(--font-size-sm);
@@ -22,14 +22,14 @@
   margin-bottom: var(--space-2);
 }
 
-.files-page__upload-progress-bar {
+.files-page__transfer-progress-bar {
   height: 6px;
   border-radius: var(--radius-pill);
   background: var(--color-surface-muted);
   overflow: hidden;
 }
 
-.files-page__upload-progress-fill {
+.files-page__transfer-progress-fill {
   height: 100%;
   background: var(--color-primary);
   transition: width 0.2s ease;

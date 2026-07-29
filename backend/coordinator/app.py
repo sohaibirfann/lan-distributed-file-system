@@ -12,7 +12,7 @@ from datetime import datetime, timedelta, timezone
 
 import httpx
 import jwt
-from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
+from fastapi import Depends, FastAPI, HTTPException, Path, Query, Request, Response
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -23,6 +23,7 @@ from coordinator.schemas import (
     ChunkDetailOut,
     ChunkHealthOut,
     ChunkPlacementOut,
+    ChunkUnavailableReport,
     EventOut,
     FileCreateRequest,
     FileDetailOut,
@@ -674,6 +675,21 @@ def delete_file(
             _default_node_client(address).delete(f"/chunks/{chunk_hash}")
         except httpx.HTTPError as err:
             logger.warning("could not reclaim chunk %s from %s: %s", chunk_hash, address, err)
+
+
+@app.post("/chunks/{chunk_id}/report-unavailable", status_code=204)
+def report_chunk_unavailable(
+    body: ChunkUnavailableReport,
+    chunk_id: str = Path(pattern=r"^[0-9a-f]{64}$"),
+    account: Account = Depends(require_session),
+    db: Session = Depends(get_db),
+) -> None:
+    if db.get(Node, body.node_id) is None:
+        raise HTTPException(status_code=404, detail="node not found")
+    _record_event(
+        db, "chunk_unavailable", f"chunk {chunk_id} unreachable on node {body.node_id}"
+    )
+    db.commit()
 
 
 @app.get("/replication/health", response_model=list[ChunkHealthOut])

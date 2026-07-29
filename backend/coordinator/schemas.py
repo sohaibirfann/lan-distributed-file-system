@@ -143,6 +143,10 @@ class FileDetailOut(BaseModel):
     chunks: list[ChunkDetailOut]
 
 
+class ChunkUnavailableReport(BaseModel):
+    node_id: int
+
+
 class ChunkHealthOut(BaseModel):
     chunk_id: int
     file_id: int

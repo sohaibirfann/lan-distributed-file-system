@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import sodium from 'libsodium-wrappers'
-import { DEFAULT_CHUNK_SIZE_BYTES, encryptChunk, hashChunk, splitIntoChunks } from './chunking'
+import { DEFAULT_CHUNK_SIZE_BYTES, decryptChunk, encryptChunk, hashChunk, splitIntoChunks } from './chunking'
 
 describe('splitIntoChunks', () => {
   it('splits a file that is an exact multiple of the chunk size', () => {
@@ -64,6 +64,28 @@ describe('encryptChunk', () => {
     const second = await encryptChunk(plaintext, key)
 
     expect(first).not.toEqual(second)
+  })
+})
+
+describe('decryptChunk', () => {
+  it('recovers the original plaintext produced by encryptChunk', async () => {
+    await sodium.ready
+    const key = sodium.randombytes_buf(32)
+    const plaintext = new TextEncoder().encode('round trip me')
+
+    const encrypted = await encryptChunk(plaintext, key)
+    const decrypted = await decryptChunk(encrypted, key)
+
+    expect(decrypted).toEqual(plaintext)
+  })
+
+  it('throws when decrypted with the wrong key', async () => {
+    await sodium.ready
+    const key = sodium.randombytes_buf(32)
+    const wrongKey = sodium.randombytes_buf(32)
+    const encrypted = await encryptChunk(new Uint8Array([1, 2, 3]), key)
+
+    await expect(decryptChunk(encrypted, wrongKey)).rejects.toThrow()
   })
 })
 

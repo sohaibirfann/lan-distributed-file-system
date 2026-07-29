@@ -1,28 +1,49 @@
 import { useEffect, useRef, useState, type ChangeEvent } from 'react'
-import { Pencil, Trash2, Upload } from 'lucide-react'
+import { Download, Pencil, Trash2, Upload } from 'lucide-react'
 import { Card } from './components/Card/Card'
 import { Button } from './components/Button/Button'
 import {
   ApiError,
   createFile,
   deleteFile,
+  getFileDetail,
   getFiles,
   getPlacement,
   getReplicationConfig,
+  reportChunkUnavailable,
   renameFile,
+  type FileDetail,
   type FileEntry,
 } from './api'
 import { getDerivedKey } from './namespaceKey'
 import { ChunkUploadError, putChunkToNode, uploadFileChunks, type UploadedChunk } from './upload'
+import {
+  ChunkDownloadError,
+  downloadFile,
+  fetchChunkFromNode,
+  prepareSaveTarget,
+  type ChunkLocation,
+} from './download'
 import { DEFAULT_CHUNK_SIZE_BYTES } from './chunking'
 import { formatBytes, formatRelativeTime } from './format'
 import './FilesPage.css'
 
-interface UploadState {
+interface TransferState {
   fileName: string
   totalChunks: number
   completedChunks: number
-  phase: 'uploading' | 'finalizing'
+  label: string
+}
+
+const FILE_DETAIL_CACHE_TTL_MS = 60_000
+const fileDetailCache = new Map<number, { detail: FileDetail; cachedAt: number }>()
+
+async function getCachedFileDetail(id: number): Promise<FileDetail> {
+  const cached = fileDetailCache.get(id)
+  if (cached && Date.now() - cached.cachedAt < FILE_DETAIL_CACHE_TTL_MS) return cached.detail
+  const detail = await getFileDetail(id)
+  fileDetailCache.set(id, { detail, cachedAt: Date.now() })
+  return detail
 }
 
 export function FilesPage() {
@@ -31,7 +52,7 @@ export function FilesPage() {
   const [editingId, setEditingId] = useState<number | null>(null)
   const [editingName, setEditingName] = useState('')
   const [error, setError] = useState<string | null>(null)
-  const [uploadState, setUploadState] = useState<UploadState | null>(null)
+  const [transferState, setTransferState] = useState<TransferState | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -100,10 +121,14 @@ export function FilesPage() {
     }
   }
 
+  function bumpCompletedChunks() {
+    setTransferState((s) => (s ? { ...s, completedChunks: s.completedChunks + 1 } : s))
+  }
+
   async function handleFileSelected(e: ChangeEvent<HTMLInputElement>) {
     const selected = e.target.files?.[0]
     e.target.value = ''
-    if (!selected || uploadState) return
+    if (!selected || transferState) return
 
     setError(null)
     const key = await getDerivedKey()
@@ -121,20 +146,82 @@ export function FilesPage() {
     }
 
     const totalChunks = Math.max(1, Math.ceil(selected.size / DEFAULT_CHUNK_SIZE_BYTES))
-    setUploadState({ fileName: selected.name, totalChunks, completedChunks: 0, phase: 'uploading' })
+    setTransferState({
+      fileName: selected.name,
+      totalChunks,
+      completedChunks: 0,
+      label: `Uploading ${selected.name}…`,
+    })
 
     try {
       const { write_quorum } = await getReplicationConfig()
-      const chunks = await uploadFileChunks(selected, key, { getPlacement, putChunk: putChunkToNode, writeQuorum: write_quorum }, 4, () =>
-        setUploadState((s) => (s ? { ...s, completedChunks: s.completedChunks + 1 } : s)),
+      const chunks = await uploadFileChunks(
+        selected,
+        key,
+        { getPlacement, putChunk: putChunkToNode, writeQuorum: write_quorum },
+        4,
+        bumpCompletedChunks,
       )
-      setUploadState((s) => (s ? { ...s, phase: 'finalizing' } : s))
+      setTransferState((s) => (s ? { ...s, label: `Finalizing ${selected.name}…` } : s))
       await finalizeUpload(selected, chunks, existing)
     } catch (err) {
       if (err instanceof ChunkUploadError) setError(err.message)
       else setError(err instanceof ApiError ? err.message : 'upload failed')
     } finally {
-      setUploadState(null)
+      setTransferState(null)
+    }
+  }
+
+  async function handleDownload(file: FileEntry) {
+    if (transferState) return
+    setError(null)
+
+    let saveTarget
+    try {
+      // Called first to keep the click's user gesture -- showSaveFilePicker needs it.
+      saveTarget = await prepareSaveTarget(file.name)
+    } catch (err) {
+      if (err instanceof Error && err.name === 'AbortError') return // user cancelled the picker
+      setError('could not start the download')
+      return
+    }
+
+    const key = await getDerivedKey()
+    if (!key) {
+      setError('Unlock the namespace passphrase in Settings before downloading.')
+      await saveTarget.abort()
+      return
+    }
+
+    const detail = await getCachedFileDetail(file.id)
+    const chunks: ChunkLocation[] = detail.chunks.map((c) => ({
+      sequenceIndex: c.sequence_index,
+      hash: c.hash,
+      replicas: c.nodes.map((n) => ({ nodeId: n.node_id, address: n.address })),
+    }))
+    setTransferState({
+      fileName: file.name,
+      totalChunks: chunks.length,
+      completedChunks: 0,
+      label: `Downloading ${file.name}…`,
+    })
+
+    try {
+      const decrypted = await downloadFile(
+        chunks,
+        key,
+        { fetchChunk: fetchChunkFromNode, reportUnavailable: reportChunkUnavailable },
+        4,
+        bumpCompletedChunks,
+      )
+      setTransferState((s) => (s ? { ...s, label: `Saving ${file.name}…` } : s))
+      await saveTarget.write(decrypted)
+    } catch (err) {
+      await saveTarget.abort()
+      if (err instanceof ChunkDownloadError) setError(err.message)
+      else setError(err instanceof ApiError ? err.message : 'download failed')
+    } finally {
+      setTransferState(null)
     }
   }
 
@@ -149,29 +236,25 @@ export function FilesPage() {
         />
         <Button
           variant="secondary"
-          disabled={uploadState !== null}
+          disabled={transferState !== null}
           onClick={() => fileInputRef.current?.click()}
         >
           <Upload size={14} /> Upload
         </Button>
       </div>
-      {uploadState && (
-        <div className="files-page__upload-progress">
-          <div className="files-page__upload-progress-header">
+      {transferState && (
+        <div className="files-page__transfer-progress">
+          <div className="files-page__transfer-progress-header">
+            <span>{transferState.label}</span>
             <span>
-              {uploadState.phase === 'finalizing'
-                ? `Finalizing ${uploadState.fileName}…`
-                : `Uploading ${uploadState.fileName}…`}
-            </span>
-            <span>
-              {uploadState.completedChunks}/{uploadState.totalChunks} chunks
+              {transferState.completedChunks}/{transferState.totalChunks} chunks
             </span>
           </div>
-          <div className="files-page__upload-progress-bar">
+          <div className="files-page__transfer-progress-bar">
             <div
-              className="files-page__upload-progress-fill"
+              className="files-page__transfer-progress-fill"
               style={{
-                width: `${Math.round((uploadState.completedChunks / uploadState.totalChunks) * 100)}%`,
+                width: `${Math.round((transferState.completedChunks / transferState.totalChunks) * 100)}%`,
               }}
             />
           </div>
@@ -210,8 +293,17 @@ export function FilesPage() {
             <button
               type="button"
               className="files-page__icon-button"
+              aria-label={`Download ${file.name}`}
+              disabled={transferState !== null}
+              onClick={() => handleDownload(file)}
+            >
+              <Download size={14} />
+            </button>
+            <button
+              type="button"
+              className="files-page__icon-button"
               aria-label={`Rename ${file.name}`}
-              disabled={uploadState !== null}
+              disabled={transferState !== null}
               onClick={() => startEditing(file)}
             >
               <Pencil size={14} />
@@ -220,7 +312,7 @@ export function FilesPage() {
               type="button"
               className="files-page__icon-button"
               aria-label={`Delete ${file.name}`}
-              disabled={uploadState !== null}
+              disabled={transferState !== null}
               onClick={() => handleDelete(file)}
             >
               <Trash2 size={14} />
