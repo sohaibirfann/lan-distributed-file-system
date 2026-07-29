@@ -69,14 +69,14 @@ async function get<T>(path: string): Promise<T> {
   return parse<T>(response)
 }
 
-async function post(path: string, body: unknown): Promise<Account> {
+async function post<T>(path: string, body: unknown): Promise<T> {
   const response = await fetch(path, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     credentials: 'include',
     body: JSON.stringify(body),
   })
-  return parse<Account>(response)
+  return parse<T>(response)
 }
 
 async function patch<T>(path: string, body: unknown): Promise<T> {
@@ -112,11 +112,11 @@ export function register(
   password: string,
   namespacePassphrase: string,
 ): Promise<Account> {
-  return post('/register', { username, password, namespace_passphrase: namespacePassphrase })
+  return post<Account>('/register', { username, password, namespace_passphrase: namespacePassphrase })
 }
 
 export function login(username: string, password: string): Promise<Account> {
-  return post('/login', { username, password })
+  return post<Account>('/login', { username, password })
 }
 
 export async function me(): Promise<Account | null> {
@@ -155,4 +155,40 @@ export function getNamespaceVerifier(): Promise<{ verifier: string | null }> {
 
 export function putNamespaceVerifier(verifier: string): Promise<{ verifier: string }> {
   return put('/namespace/verifier', { verifier })
+}
+
+export interface ReplicationConfig {
+  replication_factor: number
+  write_quorum: number
+  max_file_size_bytes: number
+  registered_node_count: number
+  eligible_node_count: number
+}
+
+export function getReplicationConfig(): Promise<ReplicationConfig> {
+  return get('/config/replication')
+}
+
+export function getPlacement(chunkId: string, exclude: string[]): Promise<Node[]> {
+  const params = new URLSearchParams()
+  for (const id of exclude) params.append('exclude', id)
+  const query = params.toString()
+  return get(`/placement/${chunkId}${query ? `?${query}` : ''}`)
+}
+
+export interface ChunkCreateIn {
+  sequence_index: number
+  hash: string
+  size_bytes: number
+  node_ids: number[]
+}
+
+export interface FileCreateBody {
+  name: string
+  size_bytes: number
+  chunks: ChunkCreateIn[]
+}
+
+export function createFile(body: FileCreateBody): Promise<FileEntry> {
+  return post<FileEntry>('/files', body)
 }

@@ -47,6 +47,21 @@ export async function clearDerivedKey(): Promise<void> {
   }
 }
 
+export async function getDerivedKey(): Promise<Uint8Array | null> {
+  const db = await openDb()
+  try {
+    const key = await new Promise<Uint8Array | undefined>((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, 'readonly')
+      const request = tx.objectStore(STORE_NAME).get(RECORD_ID)
+      request.onsuccess = () => resolve(request.result)
+      request.onerror = () => reject(request.error)
+    })
+    return key ?? null
+  } finally {
+    db.close()
+  }
+}
+
 export async function deriveKey(passphrase: string, salt: string): Promise<Uint8Array> {
   return argon2id({
     password: passphrase,
