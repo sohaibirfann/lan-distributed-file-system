@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 
 import httpx
 from fastapi import FastAPI, HTTPException, Request, Response
+from starlette.middleware.cors import CORSMiddleware
 
 from node.chunks import (
     ChunkHashMismatch,
@@ -25,10 +26,15 @@ from node.registration import register_with_coordinator
 MAX_CHUNK_BYTES = 64 * 1024 * 1024
 
 
+# Mutated in place from lifespan startup -- CORSMiddleware keeps this by reference.
+cors_allowed_origins: list[str] = []
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     config = load_config()
     app.state.config = config
+    cors_allowed_origins[:] = [config.coordinator_address]
 
     with httpx.Client(base_url=config.coordinator_address) as client:
         register_with_coordinator(config, client)
@@ -44,6 +50,13 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan)
+# Chunk bytes travel browser -> node directly (cross-origin); everything else is same-origin.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=cors_allowed_origins,
+    allow_methods=["GET", "PUT"],  # deletes are coordinator-orchestrated, never browser -> node
+    allow_headers=["*"],
+)
 
 
 @app.get("/health")

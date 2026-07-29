@@ -57,7 +57,7 @@ def load_config() -> NodeConfig:
     path = Path(storage_directory)
     path.mkdir(parents=True, exist_ok=True)
 
-    coordinator_address = _str_from_env("COORDINATOR_ADDRESS")
+    coordinator_address = _str_from_env("COORDINATOR_ADDRESS").rstrip("/")
     if not coordinator_address.startswith(("http://", "https://")):
         raise RuntimeError("COORDINATOR_ADDRESS must start with http:// or https://.")
 

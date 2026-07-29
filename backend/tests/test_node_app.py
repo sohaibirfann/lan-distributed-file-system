@@ -21,6 +21,34 @@ def _client(tmp_path, monkeypatch, **env):
     return TestClient(app_module.app)
 
 
+def test_cors_allows_the_coordinator_origin(tmp_path, monkeypatch):
+    with _client(tmp_path, monkeypatch, COORDINATOR_ADDRESS="http://coordinator.invalid") as c:
+        response = c.get("/health", headers={"Origin": "http://coordinator.invalid"})
+
+        assert response.headers["access-control-allow-origin"] == "http://coordinator.invalid"
+
+
+def test_cors_rejects_a_different_origin(tmp_path, monkeypatch):
+    with _client(tmp_path, monkeypatch, COORDINATOR_ADDRESS="http://coordinator.invalid") as c:
+        response = c.get("/health", headers={"Origin": "http://some-other-origin.invalid"})
+
+        assert "access-control-allow-origin" not in response.headers
+
+
+def test_cors_preflight_allows_put_for_the_coordinator_origin(tmp_path, monkeypatch):
+    with _client(tmp_path, monkeypatch, COORDINATOR_ADDRESS="http://coordinator.invalid") as c:
+        response = c.options(
+            "/chunks/whatever",
+            headers={
+                "Origin": "http://coordinator.invalid",
+                "Access-Control-Request-Method": "PUT",
+            },
+        )
+
+        assert response.status_code == 200
+        assert response.headers["access-control-allow-origin"] == "http://coordinator.invalid"
+
+
 def test_health(tmp_path, monkeypatch):
     with _client(tmp_path, monkeypatch) as c:
         assert c.get("/health").json() == {"status": "ok"}
@@ -127,6 +155,27 @@ def test_coordinator_address_without_scheme_fails_startup(tmp_path, monkeypatch)
     with pytest.raises(RuntimeError, match="COORDINATOR_ADDRESS"):
         with _client(tmp_path, monkeypatch, COORDINATOR_ADDRESS="coordinator.invalid:8000"):
             pass
+
+
+def test_cors_allows_origin_despite_trailing_slash_in_coordinator_address(tmp_path, monkeypatch):
+    # A browser's Origin header never has a trailing slash or path, but operators
+    # commonly type COORDINATOR_ADDRESS with one -- must still match.
+    with _client(tmp_path, monkeypatch, COORDINATOR_ADDRESS="http://coordinator.invalid/") as c:
+        response = c.get("/health", headers={"Origin": "http://coordinator.invalid"})
+
+        assert response.headers["access-control-allow-origin"] == "http://coordinator.invalid"
+
+
+def test_cors_allowed_origin_resets_across_lifespans(tmp_path, monkeypatch):
+    with _client(tmp_path, monkeypatch, COORDINATOR_ADDRESS="http://coordinator-a.invalid"):
+        pass
+
+    with _client(tmp_path, monkeypatch, COORDINATOR_ADDRESS="http://coordinator-b.invalid") as c:
+        stale = c.get("/health", headers={"Origin": "http://coordinator-a.invalid"})
+        current = c.get("/health", headers={"Origin": "http://coordinator-b.invalid"})
+
+        assert "access-control-allow-origin" not in stale.headers
+        assert current.headers["access-control-allow-origin"] == "http://coordinator-b.invalid"
 
 
 def test_register_with_coordinator_raises_when_coordinator_is_unreachable(tmp_path):
