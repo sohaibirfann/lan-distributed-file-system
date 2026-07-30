@@ -34,6 +34,19 @@ def mark_suspect(address: str) -> None:
         db.close()
 
 
+def mark_draining(address: str) -> None:
+    from coordinator.db import SessionLocal
+    from coordinator.models import Node
+
+    db = SessionLocal()
+    try:
+        node = db.query(Node).filter_by(address=address).first()
+        node.draining = True
+        db.commit()
+    finally:
+        db.close()
+
+
 def test_replication_health_requires_session(client):
     assert client.get("/replication/health").status_code == 401
 

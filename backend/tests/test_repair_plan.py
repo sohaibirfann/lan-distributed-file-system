@@ -1,7 +1,7 @@
 from tests.test_auth import register
 from tests.test_files import make_file_body
 from tests.test_nodes import login, register_node
-from tests.test_replication_health import mark_down
+from tests.test_replication_health import mark_down, mark_draining
 
 
 def test_repair_plan_requires_session(client):
@@ -33,6 +33,24 @@ def test_under_replicated_chunk_gets_a_plan_to_a_spare_node(client):
     plan = plans[0]
     assert plan["target_node_ids"] == [spare_id]
     assert plan["source_node_id"] in node_ids[1:]
+
+
+def test_draining_node_still_gets_a_repair_plan(client):
+    # Still up (can serve as source), but must not count toward RF.
+    register(client)
+    login(client)
+    node_ids = [register_node(client, address=f"n{i}:9000").json()["id"] for i in range(3)]
+    spare_id = register_node(client, address="spare:9000").json()["id"]
+    client.post("/files", json=make_file_body(chunk_sizes=(100,), node_ids=node_ids))
+
+    mark_draining("n0:9000")
+
+    plans = client.get("/replication/repair-plan").json()
+
+    assert len(plans) == 1
+    plan = plans[0]
+    assert plan["target_node_ids"] == [spare_id]
+    assert plan["source_node_id"] in node_ids  # the draining node can still be the source
 
 
 def test_unavailable_chunk_has_no_plan(client):

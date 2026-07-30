@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import secrets
 from contextlib import asynccontextmanager
 
@@ -27,6 +28,8 @@ from node.registration import measure_used_bytes, register_with_coordinator
 # configured chunk size — this is a fixed safety ceiling, not that setting.
 MAX_CHUNK_BYTES = 64 * 1024 * 1024
 
+logger = logging.getLogger(__name__)
+
 
 # Mutated in place from lifespan startup -- CORSMiddleware keeps this by reference.
 cors_allowed_origins: list[str] = []
@@ -49,6 +52,14 @@ async def lifespan(app: FastAPI):
         finally:
             stop.set()
             await task  # waits for any in-flight beat to actually finish
+            try:
+                resp = client.post("/nodes/drain", json={"address": config.node_address})
+                resp.raise_for_status()
+                remaining = resp.json()["remaining_chunks"]
+                if remaining:
+                    logger.warning("drain finished with %d chunk(s) still needing a home", remaining)
+            except httpx.HTTPError as err:
+                logger.warning("drain request failed: %s", err)
 
 
 app = FastAPI(lifespan=lifespan)

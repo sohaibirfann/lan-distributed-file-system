@@ -116,14 +116,17 @@ def _compute_repair_plans(db: Session, replication_factor: int) -> list[RepairPl
     for chunk in db.query(Chunk).all():
         placements = db.query(ChunkPlacement).filter(ChunkPlacement.chunk_id == chunk.id).all()
         placed_node_ids = {placement.node_id for placement in placements}
-        healthy_node_ids = [
+        servable_node_ids = [
             node_id
             for node_id in placed_node_ids
             if node_id in node_states and node_states[node_id] is not NodeState.DOWN
         ]
+        permanent_node_ids = [
+            node_id for node_id in servable_node_ids if node_states[node_id] is not NodeState.DRAINING
+        ]
 
-        needed = replication_factor - len(healthy_node_ids)
-        if needed <= 0 or not healthy_node_ids:
+        needed = replication_factor - len(permanent_node_ids)
+        if needed <= 0 or not servable_node_ids:
             continue  # fully healthy, or nothing left to copy from
 
         # Drop nodes that already hold this chunk, then take only what's needed.
@@ -140,7 +143,7 @@ def _compute_repair_plans(db: Session, replication_factor: int) -> list[RepairPl
                 file_id=chunk.file_id,
                 sequence_index=chunk.sequence_index,
                 hash=chunk.hash,
-                source_node_id=min(healthy_node_ids),  # arbitrary tiebreaker, not a latency pick
+                source_node_id=min(servable_node_ids),  # arbitrary tiebreaker, not a latency pick
                 target_node_ids=target_node_ids,
             )
         )

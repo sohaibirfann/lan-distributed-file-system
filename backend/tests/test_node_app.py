@@ -327,6 +327,16 @@ def test_stats_rejects_wrong_password(tmp_path, monkeypatch):
         assert response.status_code == 401
 
 
+def test_shutdown_announces_drain_without_raising_when_coordinator_is_unreachable(
+    tmp_path, monkeypatch, caplog
+):
+    with caplog.at_level("WARNING", logger="node.app"):
+        with _client(tmp_path, monkeypatch):
+            pass  # exiting here triggers lifespan shutdown, which posts to /nodes/drain
+
+    assert any("drain request failed" in record.message for record in caplog.records)
+
+
 def test_stats_reports_chunk_count_and_bytes_used(tmp_path, monkeypatch):
     with _client(tmp_path, monkeypatch) as c:
         data = b"stats test chunk"

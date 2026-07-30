@@ -76,6 +76,16 @@ class NodeHeartbeatRequest(BaseModel):
     _check_address = field_validator("address")(_validate_address)
 
 
+class NodeDrainRequest(BaseModel):
+    address: str = Field(min_length=1, max_length=256)
+
+    _check_address = field_validator("address")(_validate_address)
+
+
+class NodeDrainOut(BaseModel):
+    remaining_chunks: int
+
+
 class NodeOut(BaseModel):
     id: int
     address: str

@@ -12,8 +12,20 @@ from coordinator.auth import require_session
 from coordinator.db import get_db, SessionLocal
 from coordinator.events import record_event
 from coordinator.models import Account, Chunk, ChunkPlacement, Event, Node
-from coordinator.replication import _default_node_client
-from coordinator.schemas import EventOut, NodeHeartbeatRequest, NodeOut, NodeRegisterRequest
+from coordinator.replication import (
+    _compute_repair_plans,
+    _default_node_client,
+    _execute_repair_plans,
+    _record_node_state_transitions,
+)
+from coordinator.schemas import (
+    EventOut,
+    NodeDrainOut,
+    NodeDrainRequest,
+    NodeHeartbeatRequest,
+    NodeOut,
+    NodeRegisterRequest,
+)
 from coordinator.settings import REPLICATION_FACTOR_KEY, WRITE_QUORUM_KEY, get_required_setting
 from shared.placement import Node as PlacementNode
 from shared.placement import NodeState, build_ring, placement_candidates, state_from_heartbeat
@@ -32,6 +44,7 @@ def _apply_report(node: Node, body: NodeRegisterRequest) -> None:
     node.free_disk_bytes = body.free_disk_bytes
     node.used_bytes = body.used_bytes
     node.last_heartbeat_at = datetime.now(timezone.utc)
+    node.draining = False  # a node that re-registers has come back, not left
 
 
 def _release_surplus_placements(db: Session, node: Node) -> None:
@@ -60,12 +73,13 @@ def _release_surplus_placements(db: Session, node: Node) -> None:
             )
             .all()
         )
-        other_healthy_count = sum(
+        # DRAINING doesn't count either, or two nodes draining at once could both release.
+        other_permanent_count = sum(
             1
             for p in other_placements
-            if p.node_id in node_states and node_states[p.node_id] is not NodeState.DOWN
+            if p.node_id in node_states and node_states[p.node_id] not in (NodeState.DOWN, NodeState.DRAINING)
         )
-        if other_healthy_count < replication_factor:
+        if other_permanent_count < replication_factor:
             continue
 
         db.delete(placement)
@@ -175,6 +189,31 @@ def register_node(
         _log_placement_shift_for_new_node, node.id, replication_factor, before_nodes
     )
     return node
+
+
+@router.post("/nodes/drain", response_model=NodeDrainOut)
+def drain_node(
+    body: NodeDrainRequest,
+    account: Account = Depends(require_session),
+    db: Session = Depends(get_db),
+) -> NodeDrainOut:
+    node = _find_node(db, body.address)
+    if node is None or node.owner_account_id != account.id:
+        raise HTTPException(status_code=404, detail="Node is not registered")
+
+    node.draining = True
+    db.commit()
+
+    _record_node_state_transitions(db)
+    replication_factor = int(get_required_setting(db, REPLICATION_FACTOR_KEY))
+    plans = _compute_repair_plans(db, replication_factor)
+    _execute_repair_plans(db, plans)
+    db.commit()
+
+    _release_surplus_placements(db, node)
+
+    remaining = db.query(ChunkPlacement).filter(ChunkPlacement.node_id == node.id).count()
+    return NodeDrainOut(remaining_chunks=remaining)
 
 
 @router.post("/nodes/heartbeat", response_model=NodeOut)
