@@ -119,6 +119,10 @@ export function login(username: string, password: string): Promise<Account> {
   return post<Account>('/login', { username, password })
 }
 
+export function logout(): Promise<void> {
+  return post<void>('/logout', {})
+}
+
 export async function me(): Promise<Account | null> {
   const response = await fetch('/me', { credentials: 'include' })
   if (response.status === 401) return null

@@ -13,7 +13,13 @@ const TITLES: Record<SidebarView, string> = {
   settings: 'Settings',
 }
 
-export function DashboardShell({ account }: { account: Account }) {
+export function DashboardShell({
+  account,
+  onLogout,
+}: {
+  account: Account
+  onLogout: () => void
+}) {
   const [view, setView] = useState<SidebarView>('overview')
   const [events, setEvents] = useState<Event[]>([])
 
@@ -29,7 +35,7 @@ export function DashboardShell({ account }: { account: Account }) {
         <div className="dashboard-shell__content">
           {view === 'overview' && <OverviewPage events={events} />}
           {view === 'files' && <FilesPage />}
-          {view === 'settings' && <SettingsPage account={account} />}
+          {view === 'settings' && <SettingsPage account={account} onLogout={onLogout} />}
         </div>
       </div>
     </div>

@@ -31,7 +31,7 @@ from coordinator.settings import (
 SESSION_COOKIE_NAME = "session"
 SESSION_LIFETIME = timedelta(days=int(os.environ.get("SESSION_LIFETIME_DAYS", "7")))
 
-PUBLIC_PATHS = frozenset({"/health", "/register", "/login"})
+PUBLIC_PATHS = frozenset({"/health", "/register", "/login", "/logout"})
 
 router = APIRouter()
 
@@ -108,6 +108,17 @@ def login(body: LoginRequest, request: Request, response: Response, db: Session 
 
     issue_session_cookie(response, request, account, db)
     return account
+
+
+@router.post("/logout", status_code=204)
+def logout(request: Request, response: Response) -> None:
+    # Public and unconditional, so it's idempotent even against an already-stale cookie.
+    response.delete_cookie(
+        key=SESSION_COOKIE_NAME,
+        httponly=True,
+        samesite="lax",
+        secure=request.url.scheme == "https",
+    )
 
 
 @router.get("/me", response_model=AccountOut)

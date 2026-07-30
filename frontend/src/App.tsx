@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { AuthScreen } from './AuthScreen'
 import { DashboardShell } from './DashboardShell'
 import { Button } from './components/Button/Button'
-import { me, type Account } from './api'
+import { logout, me, type Account } from './api'
 
 function App() {
   const [account, setAccount] = useState<Account | null>(null)
@@ -20,6 +20,12 @@ function App() {
 
   useEffect(checkSession, [])
 
+  function handleLogout() {
+    // Don't wait on the network call -- a failed request shouldn't strand the user.
+    setAccount(null)
+    logout().catch(() => {})
+  }
+
   if (checkingSession) return null
 
   if (connectionError) {
@@ -35,7 +41,7 @@ function App() {
     return <AuthScreen onAuthenticated={setAccount} />
   }
 
-  return <DashboardShell account={account} />
+  return <DashboardShell account={account} onLogout={handleLogout} />
 }
 
 export default App

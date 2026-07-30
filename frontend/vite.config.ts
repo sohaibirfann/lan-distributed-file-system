@@ -7,6 +7,7 @@ const coordinatorProxy = {
   '/health': 'http://localhost:8000',
   '/register': 'http://localhost:8000',
   '/login': 'http://localhost:8000',
+  '/logout': 'http://localhost:8000',
   '/me': 'http://localhost:8000',
   '/nodes': 'http://localhost:8000',
   '/events': 'http://localhost:8000',
@@ -14,6 +15,7 @@ const coordinatorProxy = {
   '/namespace': 'http://localhost:8000',
   '/config': 'http://localhost:8000',
   '/placement': 'http://localhost:8000',
+  '/replication': 'http://localhost:8000',
 }
 
 // https://vite.dev/config/

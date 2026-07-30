@@ -8,7 +8,13 @@ import './SettingsPage.css'
 
 const UNLOCKED_KEY = 'dfs-namespace-unlocked'
 
-export function SettingsPage({ account }: { account: Account }) {
+export function SettingsPage({
+  account,
+  onLogout,
+}: {
+  account: Account
+  onLogout: () => void
+}) {
   const [passphrase, setPassphrase] = useState('')
   const [confirmPassphrase, setConfirmPassphrase] = useState('')
   const [isFirstTimeSetup, setIsFirstTimeSetup] = useState(false)
@@ -76,6 +82,9 @@ export function SettingsPage({ account }: { account: Account }) {
             {new Date(account.created_at).toLocaleDateString()}
           </span>
         </div>
+        <Button className="settings-page__logout" variant="secondary" onClick={onLogout}>
+          Log out
+        </Button>
       </Card>
 
       <Card title="Namespace Passphrase">

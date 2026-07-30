@@ -104,6 +104,21 @@ def test_login_rejects_unknown_username(client):
     assert response.status_code == 401
 
 
+def test_logout_clears_the_session_cookie(client):
+    register(client)
+    assert client.get("/me").status_code == 200
+
+    response = client.post("/logout")
+
+    assert response.status_code == 204
+    assert client.get("/me").status_code == 401
+
+
+def test_logout_without_a_session_still_succeeds(client):
+    response = client.post("/logout")
+    assert response.status_code == 204
+
+
 def test_protected_endpoint_requires_session(client):
     response = client.get("/me")
     assert response.status_code == 401
