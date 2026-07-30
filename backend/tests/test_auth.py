@@ -6,7 +6,7 @@ NAMESPACE_PASSPHRASE = "correct horse battery staple"
 def sign_session_token(payload):
     import jwt
 
-    import coordinator.app as app_module
+    import coordinator.settings as app_module
     from coordinator.db import SessionLocal
     from coordinator.security import JWT_ALGORITHM
 
@@ -127,10 +127,19 @@ def test_health_does_not_require_session(client):
 def test_no_route_is_reachable_without_a_session(client):
     """Walks the route table instead of checking endpoints one by one, so a
     future endpoint is covered automatically without touching this test."""
-    from coordinator.app import PUBLIC_PATHS, app
+    from coordinator.app import app
+    from coordinator.auth import PUBLIC_PATHS
+
+    # include_router() wraps each router's routes in a lazy holder rather than
+    # flattening them onto app.routes directly, so descend into original_router
+    # to reach the actual endpoints.
+    all_routes = []
+    for route in app.routes:
+        original_router = getattr(route, "original_router", None)
+        all_routes.extend(original_router.routes if original_router is not None else [route])
 
     checked = 0
-    for route in app.routes:
+    for route in all_routes:
         path = getattr(route, "path", None)
         if path is None or path in PUBLIC_PATHS or "{" in path:
             continue

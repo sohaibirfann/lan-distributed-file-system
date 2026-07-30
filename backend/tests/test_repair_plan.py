@@ -116,7 +116,7 @@ def test_repair_plan_evaluates_the_same_instant_for_every_node(client, monkeypat
     # Node states must come from one shared "now", not a fresh timestamp per
     # node — otherwise a node crossing a threshold mid-request could get
     # different answers in the healthy-check vs. the ring's eligibility check.
-    import coordinator.app as app_module
+    import coordinator.replication as app_module
 
     register(client)
     login(client)

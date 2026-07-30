@@ -40,7 +40,7 @@ def test_deleting_a_file_reclaims_its_chunk_bytes_from_nodes(client, tmp_path, m
         fake_a.put(f"/chunks/{chunk_hash}", content=data)
         fake_b.put(f"/chunks/{chunk_hash}", content=data)
 
-        import coordinator.app as coordinator_app_module
+        import coordinator.files as coordinator_app_module
 
         monkeypatch.setattr(
             coordinator_app_module,
@@ -90,7 +90,7 @@ def test_deleting_a_file_does_not_fail_when_a_node_is_unreachable(client, tmp_pa
                 raise httpx.ConnectError("connection refused")
             return fake_a
 
-        import coordinator.app as coordinator_app_module
+        import coordinator.files as coordinator_app_module
 
         monkeypatch.setattr(coordinator_app_module, "_default_node_client", get_node_client)
 
@@ -139,7 +139,7 @@ def test_deleting_a_file_does_not_destroy_another_files_shared_chunk(client, tmp
         fake_n = spawn_fake_node(stack, tmp_path, "n:9000", monkeypatch)
         fake_n.put(f"/chunks/{chunk_hash}", content=data)
 
-        import coordinator.app as coordinator_app_module
+        import coordinator.files as coordinator_app_module
 
         monkeypatch.setattr(coordinator_app_module, "_default_node_client", lambda address: fake_n)
 
@@ -154,7 +154,7 @@ def test_deleting_a_file_does_not_destroy_another_files_shared_chunk(client, tmp
     with ExitStack() as stack:
         fake_n = spawn_fake_node(stack, tmp_path, "n:9000", monkeypatch)
 
-        import coordinator.app as coordinator_app_module
+        import coordinator.files as coordinator_app_module
 
         monkeypatch.setattr(coordinator_app_module, "_default_node_client", lambda address: fake_n)
 

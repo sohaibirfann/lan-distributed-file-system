@@ -25,7 +25,7 @@ def test_gc_sweep_reclaims_a_chunk_the_node_holds_but_nothing_references(
         orphan_hash = chunk_id_for(orphan)
         fake_n.put(f"/chunks/{orphan_hash}", content=orphan)
 
-        import coordinator.app as coordinator_app_module
+        import coordinator.replication as coordinator_app_module
 
         monkeypatch.setattr(coordinator_app_module, "_default_node_client", lambda address: fake_n)
 
@@ -51,7 +51,7 @@ def test_gc_sweep_does_not_reclaim_a_chunk_younger_than_the_grace_period(
         chunk_hash = chunk_id_for(data)
         fake_n.put(f"/chunks/{chunk_hash}", content=data)
 
-        import coordinator.app as coordinator_app_module
+        import coordinator.replication as coordinator_app_module
 
         monkeypatch.setattr(coordinator_app_module, "_default_node_client", lambda address: fake_n)
 
@@ -88,7 +88,7 @@ def test_gc_sweep_does_not_touch_a_chunk_that_is_still_referenced(client, tmp_pa
         fake_n = spawn_fake_node(stack, tmp_path, "n:9000", monkeypatch)
         fake_n.put(f"/chunks/{chunk_hash}", content=data)
 
-        import coordinator.app as coordinator_app_module
+        import coordinator.replication as coordinator_app_module
 
         monkeypatch.setattr(coordinator_app_module, "_default_node_client", lambda address: fake_n)
 
@@ -104,7 +104,7 @@ def test_gc_sweep_survives_an_unreachable_node(client, monkeypatch):
     login(client)
     register_node(client, address="unreachable:9000")
 
-    import coordinator.app as coordinator_app_module
+    import coordinator.replication as coordinator_app_module
 
     class UnreachableClient:
         def get(self, url):
@@ -118,7 +118,7 @@ def test_gc_sweep_survives_an_unreachable_node(client, monkeypatch):
 
 
 def test_gc_sweep_loop_runs_repeatedly_until_stopped(monkeypatch):
-    import coordinator.app as app_module
+    import coordinator.replication as app_module
 
     calls = []
     monkeypatch.setattr(app_module, "run_one_gc_cycle", lambda: calls.append(1))
@@ -136,7 +136,7 @@ def test_gc_sweep_loop_runs_repeatedly_until_stopped(monkeypatch):
 
 
 def test_gc_sweep_loop_survives_a_failed_cycle(monkeypatch):
-    import coordinator.app as app_module
+    import coordinator.replication as app_module
 
     calls = []
 
@@ -160,7 +160,7 @@ def test_gc_sweep_loop_survives_a_failed_cycle(monkeypatch):
 
 
 def test_stopping_waits_for_an_in_flight_gc_sweep_before_returning(monkeypatch):
-    import coordinator.app as app_module
+    import coordinator.replication as app_module
 
     in_flight = []
 

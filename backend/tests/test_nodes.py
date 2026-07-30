@@ -76,7 +76,7 @@ def test_re_registering_same_owner_and_address_updates_the_same_node(client):
 def test_racing_registration_conflicts_instead_of_looping(client, monkeypatch):
     # Both requests' lookups miss, so both try to insert. The loser must get a
     # clean 409 rather than retrying forever or duplicating the row.
-    import coordinator.app as app_module
+    import coordinator.nodes as app_module
     from coordinator.db import SessionLocal
     from coordinator.models import Node
     from coordinator.schemas import NodeRegisterRequest

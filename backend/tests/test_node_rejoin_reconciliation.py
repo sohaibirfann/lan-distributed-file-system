@@ -47,10 +47,14 @@ def test_rejoining_node_releases_a_placement_repair_already_replaced(client, tmp
             "a:9000": fake_a, "b:9000": fake_b, "c:9000": fake_c, "spare:9000": fake_spare,
         }
 
-        import coordinator.app as coordinator_app_module
+        import coordinator.nodes as coordinator_nodes_module
+        import coordinator.replication as coordinator_app_module
 
         monkeypatch.setattr(
             coordinator_app_module, "_default_node_client", lambda address: clients[address]
+        )
+        monkeypatch.setattr(
+            coordinator_nodes_module, "_default_node_client", lambda address: clients[address]
         )
 
         # Repair replaces a's replica with the spare while a is down.
@@ -102,10 +106,14 @@ def test_rejoining_node_keeps_a_placement_still_needed_to_meet_replication_facto
         mark_down("a:9000")
 
         clients = {"a:9000": fake_a, "b:9000": fake_b}
-        import coordinator.app as coordinator_app_module
+        import coordinator.nodes as coordinator_nodes_module
+        import coordinator.replication as coordinator_app_module
 
         monkeypatch.setattr(
             coordinator_app_module, "_default_node_client", lambda address: clients[address]
+        )
+        monkeypatch.setattr(
+            coordinator_nodes_module, "_default_node_client", lambda address: clients[address]
         )
 
         client.post("/replication/repair")  # no spare exists, so RF=3 can't be restored
@@ -179,10 +187,14 @@ def test_releasing_a_surplus_placement_does_not_destroy_a_different_files_shared
         clients = {
             "a:9000": fake_a, "b:9000": fake_b, "c:9000": fake_c, "spare:9000": fake_spare,
         }
-        import coordinator.app as coordinator_app_module
+        import coordinator.nodes as coordinator_nodes_module
+        import coordinator.replication as coordinator_app_module
 
         monkeypatch.setattr(
             coordinator_app_module, "_default_node_client", lambda address: clients[address]
+        )
+        monkeypatch.setattr(
+            coordinator_nodes_module, "_default_node_client", lambda address: clients[address]
         )
 
         client.post("/replication/repair")  # backfills file_A's chunk onto spare

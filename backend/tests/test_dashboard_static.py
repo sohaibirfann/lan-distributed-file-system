@@ -11,11 +11,23 @@ def _reload_with_env(monkeypatch, tmp_path, **env):
         monkeypatch.setenv(key, value)
 
     import coordinator.app as app_module
+    import coordinator.auth as auth_module
     import coordinator.db as db_module
+    import coordinator.events as events_module
+    import coordinator.files as files_module
     import coordinator.models as models_module
+    import coordinator.nodes as nodes_module
+    import coordinator.replication as replication_module
+    import coordinator.settings as settings_module
 
     importlib.reload(db_module)
     importlib.reload(models_module)
+    importlib.reload(settings_module)
+    importlib.reload(events_module)
+    importlib.reload(auth_module)
+    importlib.reload(replication_module)
+    importlib.reload(nodes_module)
+    importlib.reload(files_module)
     importlib.reload(app_module)
     return app_module
 

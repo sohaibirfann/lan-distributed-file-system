@@ -76,7 +76,7 @@ def test_repair_copies_chunk_to_target_and_records_placement(client, tmp_path, m
         def get_node_client(address):
             return {"a:9000": fake_a, "b:9000": fake_b, "spare:9000": fake_spare}[address]
 
-        import coordinator.app as coordinator_app_module
+        import coordinator.replication as coordinator_app_module
 
         monkeypatch.setattr(coordinator_app_module, "_default_node_client", get_node_client)
 
@@ -129,7 +129,7 @@ def test_repair_reports_failure_when_source_node_is_unreachable(client, tmp_path
 
         mark_down("a:9000")
 
-        import coordinator.app as coordinator_app_module
+        import coordinator.replication as coordinator_app_module
 
         monkeypatch.setattr(coordinator_app_module, "_default_node_client", lambda address: fake_b)
 
@@ -187,7 +187,7 @@ def test_repair_handles_a_genuinely_unreachable_source_without_crashing_the_batc
         def get(self, url):
             raise httpx.ConnectError("connection refused")
 
-    import coordinator.app as coordinator_app_module
+    import coordinator.replication as coordinator_app_module
 
     monkeypatch.setattr(
         coordinator_app_module, "_default_node_client", lambda address: UnreachableClient()
@@ -244,7 +244,7 @@ def test_repair_continues_to_other_targets_when_one_target_is_unreachable(
                 raise httpx.ConnectError("connection refused")
             return {"b:9000": fake_b, "spare-ok:9000": fake_spare_ok}[address]
 
-        import coordinator.app as coordinator_app_module
+        import coordinator.replication as coordinator_app_module
 
         monkeypatch.setattr(coordinator_app_module, "_default_node_client", get_node_client)
 
@@ -312,7 +312,7 @@ def test_repair_respects_the_configured_concurrency_cap(client, monkeypatch):
             return Response()
 
     monkeypatch.setenv("REPAIR_CONCURRENCY", "2")
-    import coordinator.app as coordinator_app_module
+    import coordinator.replication as coordinator_app_module
 
     monkeypatch.setattr(coordinator_app_module, "_default_node_client", lambda address: SlowClient())
 
@@ -374,7 +374,7 @@ def test_repair_batch_survives_one_chunk_raising_an_unexpected_error(client, mon
         def put(self, url, content):
             return Response()
 
-    import coordinator.app as coordinator_app_module
+    import coordinator.replication as coordinator_app_module
 
     monkeypatch.setattr(coordinator_app_module, "_default_node_client", lambda address: SourceClient())
     monkeypatch.setenv("REPAIR_CONCURRENCY", "2")
@@ -423,7 +423,7 @@ def test_repair_rejects_a_non_positive_concurrency_setting(client, monkeypatch):
     monkeypatch.setenv("REPAIR_CONCURRENCY", "0")
 
     with pytest.raises(RuntimeError, match="REPAIR_CONCURRENCY"):
-        from coordinator.app import run_one_repair_cycle
+        from coordinator.replication import run_one_repair_cycle
 
         run_one_repair_cycle()
 
@@ -433,7 +433,7 @@ def test_execute_repair_handles_a_source_node_that_no_longer_exists(client):
     # HTTP today — exercised directly at the function level as a defensive
     # guard against a future feature reintroducing the "one bad chunk
     # crashes the whole batch" bug via AttributeError instead of httpx.HTTPError.
-    from coordinator.app import _default_node_client, _execute_repair
+    from coordinator.replication import _default_node_client, _execute_repair
     from coordinator.db import SessionLocal
     from coordinator.schemas import RepairPlanOut
 
@@ -452,7 +452,7 @@ def test_execute_repair_handles_a_source_node_that_no_longer_exists(client):
 
 
 def test_execute_repair_handles_a_target_node_that_no_longer_exists(client):
-    from coordinator.app import _execute_repair
+    from coordinator.replication import _execute_repair
     from coordinator.db import SessionLocal
     from coordinator.schemas import RepairPlanOut
 

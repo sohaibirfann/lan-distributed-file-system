@@ -106,7 +106,7 @@ def test_health_evaluates_the_same_instant_for_every_chunk(client, monkeypatch):
     # a node crossing a threshold mid-request could classify inconsistently
     # across chunks in the same response. Pinning the call count to exactly
     # one is what actually guarantees that can't happen.
-    import coordinator.app as app_module
+    import coordinator.replication as app_module
 
     register(client)
     login(client)
