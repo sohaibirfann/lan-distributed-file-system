@@ -1,3 +1,5 @@
+import hashlib
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -304,3 +306,37 @@ def test_register_with_coordinator_raises_on_bad_credentials(client, tmp_path):
 
     with pytest.raises(httpx.HTTPStatusError):
         register_with_coordinator(config, client)
+
+
+def test_stats_requires_auth(tmp_path, monkeypatch):
+    with _client(tmp_path, monkeypatch) as c:
+        response = c.get("/stats")
+        assert response.status_code == 401
+        assert response.headers["www-authenticate"] == "Basic"
+
+
+def test_stats_rejects_wrong_username(tmp_path, monkeypatch):
+    with _client(tmp_path, monkeypatch) as c:
+        response = c.get("/stats", auth=("wrong", "hunter22"))
+        assert response.status_code == 401
+
+
+def test_stats_rejects_wrong_password(tmp_path, monkeypatch):
+    with _client(tmp_path, monkeypatch) as c:
+        response = c.get("/stats", auth=("alice", "wrong"))
+        assert response.status_code == 401
+
+
+def test_stats_reports_chunk_count_and_bytes_used(tmp_path, monkeypatch):
+    with _client(tmp_path, monkeypatch) as c:
+        data = b"stats test chunk"
+        chunk_id = hashlib.sha256(data).hexdigest()
+        c.put(f"/chunks/{chunk_id}", content=data)
+
+        response = c.get("/stats", auth=("alice", "hunter22"))
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["chunk_count"] == 1
+        assert body["used_bytes"] == len(data)
+        assert body["capacity_budget_bytes"] == 10 * 1024**3

@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+import secrets
 from contextlib import asynccontextmanager
 
 import httpx
-from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi import Depends, FastAPI, HTTPException, Request, Response
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from starlette.middleware.cors import CORSMiddleware
 
 from node.chunks import (
@@ -18,7 +20,7 @@ from node.chunks import (
 )
 from node.config import load_config
 from node.heartbeat import heartbeat_loop
-from node.registration import register_with_coordinator
+from node.registration import measure_used_bytes, register_with_coordinator
 
 # A single request is fully buffered into memory before the hash/capacity
 # checks run, so it needs its own cap independent of the coordinator's
@@ -62,6 +64,32 @@ app.add_middleware(
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+security = HTTPBasic()
+
+
+def require_owner_auth(
+    request: Request, credentials: HTTPBasicCredentials = Depends(security)
+) -> None:
+    config = request.app.state.config
+    valid = secrets.compare_digest(
+        credentials.username, config.owner_username
+    ) and secrets.compare_digest(credentials.password, config.owner_password)
+    if not valid:
+        raise HTTPException(
+            status_code=401, detail="Invalid credentials", headers={"WWW-Authenticate": "Basic"}
+        )
+
+
+@app.get("/stats")
+def stats(request: Request, _: None = Depends(require_owner_auth)) -> dict[str, int]:
+    config = request.app.state.config
+    return {
+        "chunk_count": len(list_chunk_inventory(config)),
+        "used_bytes": measure_used_bytes(config.storage_directory),
+        "capacity_budget_bytes": config.capacity_budget_bytes,
+    }
 
 
 @app.get("/chunks")
