@@ -10,5 +10,6 @@ out/
 
 *.db
 *.sqlite3
+backend/demo-data/
 
 .env
