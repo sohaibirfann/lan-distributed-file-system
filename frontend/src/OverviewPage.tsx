@@ -1,9 +1,19 @@
 import { useEffect, useState } from 'react'
+import { LogOut } from 'lucide-react'
 import { Badge, type BadgeTone } from './components/Badge/Badge'
 import { StatTile } from './components/StatTile/StatTile'
 import { Card } from './components/Card/Card'
 import { formatBytes, formatRelativeTime } from './format'
-import { getFiles, getNodes, getReplicationHealth, type ChunkHealth, type FileEntry, type Node } from './api'
+import {
+  ApiError,
+  drainNode,
+  getFiles,
+  getNodes,
+  getReplicationHealth,
+  type ChunkHealth,
+  type FileEntry,
+  type Node,
+} from './api'
 import './OverviewPage.css'
 
 const STATE_TONE: Record<Node['state'], BadgeTone> = {
@@ -32,6 +42,8 @@ export function OverviewPage({ events }: OverviewPageProps) {
   const [files, setFiles] = useState<FileEntry[]>([])
   const [health, setHealth] = useState<ChunkHealth[]>([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [drainingAddresses, setDrainingAddresses] = useState<Set<string>>(new Set())
 
   useEffect(() => {
     Promise.all([getNodes(), getFiles(), getReplicationHealth()])
@@ -42,6 +54,37 @@ export function OverviewPage({ events }: OverviewPageProps) {
       })
       .finally(() => setLoading(false))
   }, [])
+
+  async function refreshNodesQuietly() {
+    try {
+      setNodes(await getNodes())
+    } catch {
+      // Keep whatever drain result was already shown; a refresh failure isn't a drain failure.
+    }
+  }
+
+  async function handleDrain(node: Node) {
+    if (!window.confirm(`Drain ${node.address}? The coordinator will try to move its chunks to other nodes.`)) return
+    setError(null)
+    setDrainingAddresses((current) => new Set(current).add(node.address))
+    try {
+      const { remaining_chunks } = await drainNode(node.address)
+      if (remaining_chunks > 0) {
+        setError(
+          `${node.address}: ${remaining_chunks} chunk(s) could not be moved yet (no spare capacity).`,
+        )
+      }
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'could not drain node')
+    } finally {
+      setDrainingAddresses((current) => {
+        const next = new Set(current)
+        next.delete(node.address)
+        return next
+      })
+    }
+    await refreshNodesQuietly()
+  }
 
   const up = nodes.filter((n) => n.state === 'up').length
   const atRisk = nodes.filter((n) => n.state === 'suspect' || n.state === 'down').length
@@ -79,6 +122,7 @@ export function OverviewPage({ events }: OverviewPageProps) {
         <Card title="Nodes">
           {loading && <p className="ds-empty">Loading…</p>}
           {!loading && nodes.length === 0 && <p className="ds-empty">No nodes registered yet.</p>}
+          {error && <p className="overview-page__error">{error}</p>}
           {nodes.map((node) => (
             <div key={node.id} className="overview-page__row">
               <div className="overview-page__row-main">
@@ -90,6 +134,17 @@ export function OverviewPage({ events }: OverviewPageProps) {
                   {formatBytes(node.used_bytes)} / {formatBytes(node.effective_capacity_bytes)}
                 </span>
                 <span>heartbeat {formatRelativeTime(node.last_heartbeat_at)}</span>
+              </div>
+              <div className="overview-page__row-actions">
+                <button
+                  type="button"
+                  className="overview-page__icon-button"
+                  aria-label={`Drain ${node.address}`}
+                  disabled={node.draining || drainingAddresses.has(node.address)}
+                  onClick={() => handleDrain(node)}
+                >
+                  <LogOut size={14} />
+                </button>
               </div>
             </div>
           ))}

@@ -133,6 +133,10 @@ export function getNodes(): Promise<Node[]> {
   return get('/nodes')
 }
 
+export function drainNode(address: string): Promise<{ remaining_chunks: number }> {
+  return post('/nodes/drain', { address })
+}
+
 export function getEvents(): Promise<Event[]> {
   return get('/events')
 }
