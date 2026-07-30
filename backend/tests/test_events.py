@@ -189,6 +189,71 @@ def test_node_join_reports_how_many_chunks_would_move(client):
     assert "new-node:9000" in shift_events[0]["message"]
 
 
+def test_shift_count_counts_chunk_rows_not_distinct_hashes(client):
+    # Two Chunk rows can share a hash with independent placements; verified
+    # against an oracle built from the same ring/placement functions.
+    from coordinator.db import SessionLocal
+    from coordinator.models import Chunk, File
+    from coordinator.nodes import _count_chunks_with_different_placement
+    from shared.placement import NodeState
+    from shared.placement import Node as PlacementNode
+    from shared.placement import build_ring, placement_candidates
+
+    register(client)
+    replication_factor = 3
+    before_nodes = [
+        PlacementNode(
+            node_id=str(i),
+            capacity_budget_bytes=10 * 1024**3,
+            free_disk_bytes=10 * 1024**3,
+            used_bytes=0,
+            state=NodeState.UP,
+        )
+        for i in range(3)
+    ]
+    after_nodes = before_nodes + [
+        PlacementNode(
+            node_id="3",
+            capacity_budget_bytes=10 * 1024**3,
+            free_disk_bytes=10 * 1024**3,
+            used_bytes=0,
+            state=NodeState.UP,
+        )
+    ]
+    before_ring = build_ring(before_nodes)
+    after_ring = build_ring(after_nodes)
+    before_by_id = {n.node_id: n for n in before_nodes}
+    after_by_id = {n.node_id: n for n in after_nodes}
+
+    hashes = [f"{i:064x}" for i in range(50)]
+    oracle_shifted = sum(
+        1
+        for h in hashes
+        if set(placement_candidates(before_ring, before_by_id, h, replication_factor))
+        != set(placement_candidates(after_ring, after_by_id, h, replication_factor))
+    )
+    assert oracle_shifted > 0, "test setup must guarantee at least one hash actually shifts"
+
+    db = SessionLocal()
+    try:
+        file_a = File(name="a.bin", size_bytes=1, uploader_account_id=1)
+        file_b = File(name="b.bin", size_bytes=1, uploader_account_id=1)
+        db.add_all([file_a, file_b])
+        db.flush()
+        for h in hashes:
+            db.add(Chunk(file_id=file_a.id, sequence_index=0, hash=h, size_bytes=1))
+            db.add(Chunk(file_id=file_b.id, sequence_index=0, hash=h, size_bytes=1))
+        db.commit()
+
+        moved = _count_chunks_with_different_placement(
+            db, replication_factor, before_nodes, after_nodes
+        )
+    finally:
+        db.close()
+
+    assert moved == 2 * oracle_shifted
+
+
 def test_node_join_reports_nothing_when_no_chunks_exist_yet(client):
     register(client)
     login(client)

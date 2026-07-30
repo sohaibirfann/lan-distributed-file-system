@@ -104,11 +104,16 @@ def _count_chunks_with_different_placement(
     before_by_id = {n.node_id: n for n in before_nodes}
     after_by_id = {n.node_id: n for n in after_nodes}
 
+    # Two Chunk rows can share a hash with independent placements, so count rows,
+    # not distinct hashes -- memoized since the shift check is the same either way.
+    shifted_by_hash: dict[str, bool] = {}
     moved = 0
-    for (chunk_hash,) in db.query(Chunk.hash).distinct().all():
-        before_set = placement_candidates(before_ring, before_by_id, chunk_hash, replication_factor)
-        after_set = placement_candidates(after_ring, after_by_id, chunk_hash, replication_factor)
-        if set(before_set) != set(after_set):
+    for (chunk_hash,) in db.query(Chunk.hash).all():
+        if chunk_hash not in shifted_by_hash:
+            before_set = placement_candidates(before_ring, before_by_id, chunk_hash, replication_factor)
+            after_set = placement_candidates(after_ring, after_by_id, chunk_hash, replication_factor)
+            shifted_by_hash[chunk_hash] = set(before_set) != set(after_set)
+        if shifted_by_hash[chunk_hash]:
             moved += 1
     return moved
 

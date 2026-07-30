@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path as FilePath
 
 from fastapi import Depends, FastAPI
 from fastapi.staticfiles import StaticFiles
+from zeroconf import Error as ZeroconfError
 
 from coordinator import auth, files, nodes, replication
 from coordinator.auth import enforce_session
@@ -19,6 +21,8 @@ from coordinator.settings import (
     load_replication_config,
     seed_settings,
 )
+
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
@@ -37,9 +41,13 @@ async def lifespan(app: FastAPI):
         raise RuntimeError("GC_SWEEP_INTERVAL_SECONDS must be positive.")
 
     # On by default for zero-config discovery; tests disable it (slow/flaky in bulk).
+    # A convenience feature, so it must not be able to take the coordinator down.
     mdns = None
     if os.environ.get("MDNS_ADVERTISE", "true").lower() != "false":
-        mdns = await start_mdns_advertisement(_int_from_env("COORDINATOR_PORT", "8000"))
+        try:
+            mdns = await start_mdns_advertisement(_int_from_env("COORDINATOR_PORT", "8000"))
+        except (OSError, ZeroconfError) as err:
+            logger.warning("mDNS advertisement failed to start: %s", err)
 
     stop = asyncio.Event()
     task = asyncio.create_task(repair_loop(stop, repair_interval_seconds))
