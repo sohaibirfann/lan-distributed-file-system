@@ -11,6 +11,8 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setenv("NAMESPACE_PASSPHRASE", "correct horse battery staple")
     # Pinned absent so tests don't depend on whether a local frontend build exists.
     monkeypatch.setenv("DASHBOARD_DIST_DIR", str(tmp_path / "no-dashboard-dist"))
+    # Real mDNS registration is slow and flaky across hundreds of app startups.
+    monkeypatch.setenv("MDNS_ADVERTISE", "false")
 
     import coordinator.app as app_module
     import coordinator.db as db_module

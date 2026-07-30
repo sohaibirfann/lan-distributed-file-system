@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 def _reload_with_env(monkeypatch, tmp_path, **env):
     monkeypatch.setenv("COORDINATOR_DB_PATH", str(tmp_path / "coordinator.db"))
     monkeypatch.setenv("NAMESPACE_PASSPHRASE", "correct horse battery staple")
+    monkeypatch.setenv("MDNS_ADVERTISE", "false")
     for key, value in env.items():
         monkeypatch.setenv(key, value)
 

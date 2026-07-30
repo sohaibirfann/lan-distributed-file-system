@@ -72,6 +72,7 @@ def coordinator_process(tmp_path):
         "NAMESPACE_PASSPHRASE": "correct horse battery staple",
         "COORDINATOR_HOST": "127.0.0.1",
         "COORDINATOR_PORT": str(port),
+        "MDNS_ADVERTISE": "false",
     }
     process, output = _spawn("coordinator", env)
     base_url = f"http://127.0.0.1:{port}"

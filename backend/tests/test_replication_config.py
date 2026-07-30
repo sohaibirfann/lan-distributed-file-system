@@ -81,6 +81,7 @@ def _fresh_client(tmp_path, monkeypatch, **env):
     db_path = tmp_path / "coordinator.db"
     monkeypatch.setenv("COORDINATOR_DB_PATH", str(db_path))
     monkeypatch.setenv("NAMESPACE_PASSPHRASE", NAMESPACE_PASSPHRASE)
+    monkeypatch.setenv("MDNS_ADVERTISE", "false")
     for key, value in env.items():
         monkeypatch.setenv(key, value)
 

@@ -20,6 +20,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from coordinator.db import get_db, init_db, SessionLocal
+from coordinator.discovery import start_mdns_advertisement
 from coordinator.models import Account, Chunk, ChunkPlacement, Event, File, Node, Settings
 from coordinator.schemas import (
     AccountOut,
@@ -170,6 +171,11 @@ async def lifespan(app: FastAPI):
     if gc_sweep_interval_seconds <= 0:
         raise RuntimeError("GC_SWEEP_INTERVAL_SECONDS must be positive.")
 
+    # On by default for zero-config discovery; tests disable it (slow/flaky in bulk).
+    mdns = None
+    if os.environ.get("MDNS_ADVERTISE", "true").lower() != "false":
+        mdns = await start_mdns_advertisement(_int_from_env("COORDINATOR_PORT", "8000"))
+
     stop = asyncio.Event()
     task = asyncio.create_task(repair_loop(stop, repair_interval_seconds))
     gc_stop = asyncio.Event()
@@ -181,6 +187,10 @@ async def lifespan(app: FastAPI):
         gc_stop.set()
         await task  # waits for any in-flight repair cycle to actually finish
         await gc_task  # waits for any in-flight sweep to actually finish
+        if mdns is not None:
+            mdns_zc, mdns_info = mdns
+            await mdns_zc.async_unregister_service(mdns_info)
+            await mdns_zc.async_close()
 
 
 def require_session(request: Request, db: Session = Depends(get_db)) -> Account:

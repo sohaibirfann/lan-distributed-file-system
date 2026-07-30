@@ -4,6 +4,7 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from node.discovery import discover_coordinator_address
 from shared.placement import SUSPECT_THRESHOLD
 
 GB = 1024**3
@@ -57,9 +58,13 @@ def load_config() -> NodeConfig:
     path = Path(storage_directory)
     path.mkdir(parents=True, exist_ok=True)
 
-    coordinator_address = _str_from_env("COORDINATOR_ADDRESS").rstrip("/")
-    if not coordinator_address.startswith(("http://", "https://")):
-        raise RuntimeError("COORDINATOR_ADDRESS must start with http:// or https://.")
+    coordinator_address = os.environ.get("COORDINATOR_ADDRESS")
+    if coordinator_address:
+        coordinator_address = coordinator_address.rstrip("/")
+        if not coordinator_address.startswith(("http://", "https://")):
+            raise RuntimeError("COORDINATOR_ADDRESS must start with http:// or https://.")
+    else:
+        coordinator_address = discover_coordinator_address()
 
     heartbeat_interval_seconds = _int_from_env_with_default("HEARTBEAT_INTERVAL_SECONDS", 10)
     if heartbeat_interval_seconds <= 0:

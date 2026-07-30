@@ -132,9 +132,7 @@ def test_heartbeat_interval_at_or_above_suspect_threshold_fails_startup(tmp_path
             pass
 
 
-@pytest.mark.parametrize(
-    "var", ["COORDINATOR_ADDRESS", "NODE_ADDRESS", "OWNER_USERNAME", "OWNER_PASSWORD"]
-)
+@pytest.mark.parametrize("var", ["NODE_ADDRESS", "OWNER_USERNAME", "OWNER_PASSWORD"])
 def test_missing_required_var_fails_startup(tmp_path, monkeypatch, var):
     monkeypatch.setenv("STORAGE_DIRECTORY", str(tmp_path / "storage"))
     monkeypatch.setenv("CAPACITY_BUDGET_GB", "10")
@@ -155,6 +153,38 @@ def test_coordinator_address_without_scheme_fails_startup(tmp_path, monkeypatch)
     with pytest.raises(RuntimeError, match="COORDINATOR_ADDRESS"):
         with _client(tmp_path, monkeypatch, COORDINATOR_ADDRESS="coordinator.invalid:8000"):
             pass
+
+
+def test_explicit_coordinator_address_skips_discovery_entirely(tmp_path, monkeypatch):
+    import node.config as config_module
+
+    def _fail_if_called(*args, **kwargs):
+        raise AssertionError("discovery should never run when COORDINATOR_ADDRESS is set")
+
+    monkeypatch.setattr(config_module, "discover_coordinator_address", _fail_if_called)
+
+    with _client(tmp_path, monkeypatch, COORDINATOR_ADDRESS="http://coordinator.invalid"):
+        pass  # no AssertionError means discovery was never attempted
+
+
+def test_missing_coordinator_address_falls_back_to_discovery(tmp_path, monkeypatch):
+    monkeypatch.setenv("STORAGE_DIRECTORY", str(tmp_path / "storage"))
+    monkeypatch.setenv("CAPACITY_BUDGET_GB", "10")
+    monkeypatch.delenv("COORDINATOR_ADDRESS", raising=False)
+    monkeypatch.setenv("NODE_ADDRESS", "node.invalid:9000")
+    monkeypatch.setenv("OWNER_USERNAME", "alice")
+    monkeypatch.setenv("OWNER_PASSWORD", "hunter22")
+
+    import node.app as app_module
+    import node.config as config_module
+
+    monkeypatch.setattr(
+        config_module, "discover_coordinator_address", lambda: "http://discovered.invalid:8000"
+    )
+    monkeypatch.setattr(app_module, "register_with_coordinator", lambda config, client: None)
+
+    with TestClient(app_module.app) as c:
+        assert c.get("/health").status_code == 200
 
 
 def test_cors_allows_origin_despite_trailing_slash_in_coordinator_address(tmp_path, monkeypatch):
