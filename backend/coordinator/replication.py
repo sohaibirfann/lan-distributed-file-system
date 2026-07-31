@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 
 import httpx
 from fastapi import APIRouter, Depends
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from coordinator.auth import require_session
@@ -216,7 +217,11 @@ def _execute_repair(
             ok = False
 
         if ok:
-            db.add(ChunkPlacement(chunk_id=plan.chunk_id, node_id=target_node_id))
+            try:
+                with db.begin_nested():
+                    db.add(ChunkPlacement(chunk_id=plan.chunk_id, node_id=target_node_id))
+            except IntegrityError:
+                pass  # a concurrent repair cycle already recorded this same placement
             repaired_node_ids.append(target_node_id)
         else:
             failed_node_ids.append(target_node_id)

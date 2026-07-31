@@ -489,3 +489,54 @@ def test_execute_repair_handles_a_target_node_that_no_longer_exists(client):
     # exist, and the point is that it fails cleanly rather than crashing.
     assert result.repaired_node_ids == []
     assert result.failed_node_ids == [99999]
+
+
+def test_two_concurrent_repair_cycles_targeting_the_same_node_do_not_double_insert(
+    client, tmp_path, monkeypatch
+):
+    from coordinator.db import SessionLocal
+    from coordinator.models import ChunkPlacement, Node
+    from coordinator.replication import _execute_repair
+    from coordinator.schemas import RepairPlanOut
+
+    register(client)
+    login(client)
+    register_node(client, address="source:9000")
+    target = register_node(client, address="target:9000").json()
+
+    with ExitStack() as stack:
+        fake_target = spawn_fake_node(stack, tmp_path, "target:9000", monkeypatch)
+
+        data = b"real chunk bytes"
+        chunk_hash = chunk_id_for(data)
+
+        class FakeSourceClient:
+            def get(self, url, **kwargs):
+                class Response:
+                    status_code = 200
+                    content = data
+
+                return Response()
+
+            def put(self, url, content, **kwargs):
+                return fake_target.put(url, content=content, headers=chunk_auth_headers())
+
+        db = SessionLocal()
+        try:
+            source_id = db.query(Node).filter_by(address="source:9000").first().id
+            plan = RepairPlanOut(
+                chunk_id=1, file_id=1, sequence_index=0, hash=chunk_hash,
+                source_node_id=source_id, target_node_ids=[target["id"]],
+            )
+            client_factory = lambda address: FakeSourceClient()
+
+            first = _execute_repair(db, plan, client_factory)
+            second = _execute_repair(db, plan, client_factory)
+
+            assert first.repaired_node_ids == [target["id"]]
+            assert second.repaired_node_ids == [target["id"]]  # still reported as repaired
+            assert db.query(ChunkPlacement).filter_by(
+                chunk_id=1, node_id=target["id"]
+            ).count() == 1
+        finally:
+            db.close()

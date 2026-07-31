@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import ForeignKey, String
+from sqlalchemy import ForeignKey, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from coordinator.db import Base, UTCDateTime
@@ -89,6 +89,7 @@ class Chunk(Base):
 
 class ChunkPlacement(Base):
     __tablename__ = "chunk_placements"
+    __table_args__ = (UniqueConstraint("chunk_id", "node_id"),)
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     chunk_id: Mapped[int] = mapped_column(ForeignKey("chunks.id"))
