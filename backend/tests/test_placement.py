@@ -7,12 +7,14 @@ from hypothesis import example, given, strategies as st
 from shared.placement import (
     DOWN_GRACE_PERIOD,
     GB,
+    MAX_VIRTUAL_NODES,
     SUSPECT_THRESHOLD,
     Node,
     NodeState,
     build_ring,
     placement_candidates,
     state_from_heartbeat,
+    virtual_node_count,
 )
 
 
@@ -192,6 +194,11 @@ def test_virtual_node_weighting_is_capacity_proportional():
     # Order of magnitude, not exact ratio — ring hashing is randomized by design.
     ratio = counts["large"] / counts["small"]
     assert 5 < ratio < 20
+
+
+def test_virtual_node_count_is_capped_for_a_multi_terabyte_node():
+    ten_terabytes = 10 * 1024 * GB
+    assert virtual_node_count(ten_terabytes) == MAX_VIRTUAL_NODES
 
 
 def test_placement_is_deterministic_for_same_ring_and_chunk():

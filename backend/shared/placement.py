@@ -8,6 +8,7 @@ from enum import Enum
 
 VIRTUAL_NODES_PER_GB = 10
 MIN_VIRTUAL_NODES = 10
+MAX_VIRTUAL_NODES = 10_000  # caps ring cost for a multi-TB node; ~1TB already saturates this
 GB = 1024**3
 
 SUSPECT_THRESHOLD = timedelta(seconds=30)
@@ -75,7 +76,7 @@ def ring_position(key: str) -> int:
 
 def virtual_node_count(effective_capacity_bytes: int) -> int:
     capacity_gb = effective_capacity_bytes / GB
-    return max(MIN_VIRTUAL_NODES, round(capacity_gb * VIRTUAL_NODES_PER_GB))
+    return min(MAX_VIRTUAL_NODES, max(MIN_VIRTUAL_NODES, round(capacity_gb * VIRTUAL_NODES_PER_GB)))
 
 
 def build_ring(nodes: list[Node]) -> list[tuple[int, str]]:
