@@ -69,12 +69,31 @@ export async function downloadFile(
   chunks: ChunkLocation[],
   key: Uint8Array,
   deps: DownloadDeps,
+  sink: SaveTarget,
   concurrency = DEFAULT_CHUNK_CONCURRENCY,
   onChunkDone?: (sequenceIndex: number) => void,
-): Promise<Uint8Array[]> {
-  const results: Uint8Array[] = new Array(chunks.length)
+): Promise<void> {
+  const pending = new Map<number, Uint8Array>()
+  let nextToWrite = 0
+  let flushing = false
   let nextIndex = 0
   let firstError: ChunkDownloadError | null = null
+
+  async function flush() {
+    if (flushing) return
+    flushing = true
+    try {
+      while (pending.has(nextToWrite)) {
+        const bytes = pending.get(nextToWrite)!
+        pending.delete(nextToWrite)
+        await sink.write(bytes)
+        onChunkDone?.(nextToWrite)
+        nextToWrite++
+      }
+    } finally {
+      flushing = false
+    }
+  }
 
   async function worker() {
     while (true) {
@@ -90,8 +109,8 @@ export async function downloadFile(
           chunk.replicas,
           deps,
         )
-        results[chunk.sequenceIndex] = await decryptChunk(encrypted, key)
-        onChunkDone?.(chunk.sequenceIndex)
+        pending.set(chunk.sequenceIndex, await decryptChunk(encrypted, key))
+        await flush()
       } catch (err) {
         firstError = err as ChunkDownloadError
         return
@@ -101,7 +120,7 @@ export async function downloadFile(
 
   await Promise.all(Array.from({ length: Math.min(concurrency, chunks.length) }, worker))
   if (firstError) throw firstError
-  return results
+  await sink.close()
 }
 
 interface FileSystemWritableFileStream {
@@ -117,7 +136,8 @@ interface SaveFilePickerWindow {
 }
 
 export interface SaveTarget {
-  write(orderedChunks: Uint8Array[]): Promise<void>
+  write(chunk: Uint8Array): Promise<void>
+  close(): Promise<void>
   // No-op on the fallback path; on the streaming path, discards the already-created file.
   abort(): Promise<void>
 }
@@ -131,20 +151,20 @@ export async function prepareSaveTarget(name: string): Promise<SaveTarget> {
     })
     const writable = await handle.createWritable()
     return {
-      async write(orderedChunks) {
-        for (const chunk of orderedChunks) {
-          await writable.write(chunk as BufferSource)
-        }
-        await writable.close()
-      },
+      write: (chunk) => writable.write(chunk as BufferSource),
+      close: () => writable.close(),
       abort: () => writable.abort(),
     }
   }
 
+  const parts: Uint8Array[] = []
   return {
     abort: async () => {},
-    async write(orderedChunks) {
-      const blob = new Blob(orderedChunks.map((c) => c as BlobPart))
+    async write(chunk) {
+      parts.push(chunk)
+    },
+    async close() {
+      const blob = new Blob(parts.map((c) => c as BlobPart))
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url

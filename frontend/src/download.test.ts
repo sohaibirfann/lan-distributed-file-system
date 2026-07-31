@@ -6,12 +6,25 @@ import {
   type ChunkLocation,
   type ChunkReplica,
   type DownloadDeps,
+  type SaveTarget,
   downloadFile,
   fetchChunkFromReplicas,
 } from './download'
 
 function replica(nodeId: number): ChunkReplica {
   return { nodeId, address: `node-${nodeId}:9000`, token: `token-${nodeId}` }
+}
+
+function fakeSink(): SaveTarget & { written: Uint8Array[] } {
+  const written: Uint8Array[] = []
+  return {
+    written,
+    write: async (chunk) => {
+      written.push(chunk)
+    },
+    close: async () => {},
+    abort: async () => {},
+  }
 }
 
 describe('fetchChunkFromReplicas', () => {
@@ -105,9 +118,10 @@ describe('downloadFile', () => {
     }
     const done: number[] = []
 
-    const results = await downloadFile(locations, key, deps, 3, (i) => done.push(i))
+    const sink = fakeSink()
+    await downloadFile(locations, key, deps, sink, 3, (i) => done.push(i))
 
-    expect(results).toEqual(plaintexts)
+    expect(sink.written).toEqual(plaintexts)
     expect(done.sort()).toEqual([0, 1, 2])
   })
 
@@ -131,7 +145,7 @@ describe('downloadFile', () => {
     }
 
     await expect(
-      downloadFile(locations, new Uint8Array(32), deps, 2),
+      downloadFile(locations, new Uint8Array(32), deps, fakeSink(), 2),
     ).rejects.toBeInstanceOf(ChunkDownloadError)
     expect(attempted.has(2)).toBe(false)
     expect(attempted.has(3)).toBe(false)
@@ -161,7 +175,7 @@ describe('downloadFile', () => {
       reportUnavailable: vi.fn(),
     }
 
-    await downloadFile(locations, key, deps, 2)
+    await downloadFile(locations, key, deps, fakeSink(), 2)
 
     expect(maxInFlight).toBeLessThanOrEqual(2)
   })

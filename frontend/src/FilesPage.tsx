@@ -229,15 +229,14 @@ export function FilesPage() {
     })
 
     try {
-      const decrypted = await downloadFile(
+      await downloadFile(
         chunks,
         key,
         { fetchChunk: fetchChunkFromNode, reportUnavailable: reportChunkUnavailable },
+        saveTarget,
         4,
         bumpCompletedChunks,
       )
-      setTransferState((s) => (s ? { ...s, label: `Saving ${file.name}…` } : s))
-      await saveTarget.write(decrypted)
     } catch (err) {
       await saveTarget.abort()
       if (err instanceof ChunkDownloadError) setError(err.message)
