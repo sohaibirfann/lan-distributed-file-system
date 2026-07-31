@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
+import threading
 import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
@@ -161,8 +162,20 @@ def repair_plan(
     return _compute_repair_plans(db, replication_factor)
 
 
+_node_clients: dict[str, httpx.Client] = {}
+_node_clients_lock = threading.Lock()
+
+
 def _default_node_client(address: str) -> httpx.Client:
-    return httpx.Client(base_url=f"http://{address}")
+    # One persistent client per node address, reused for the life of the
+    # process -- a fresh client per call was never closed, leaking sockets
+    # under sustained load.
+    with _node_clients_lock:
+        client = _node_clients.get(address)
+        if client is None:
+            client = httpx.Client(base_url=f"http://{address}")
+            _node_clients[address] = client
+        return client
 
 
 def _bearer(chunk_token: str) -> dict[str, str]:

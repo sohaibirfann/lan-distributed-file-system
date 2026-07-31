@@ -452,6 +452,17 @@ def test_execute_repair_handles_a_source_node_that_no_longer_exists(client):
     assert result.error is not None
 
 
+def test_default_node_client_is_reused_per_address():
+    from coordinator.replication import _default_node_client
+
+    a = _default_node_client("some-node:9000")
+    b = _default_node_client("some-node:9000")
+    c = _default_node_client("other-node:9000")
+
+    assert a is b
+    assert a is not c
+
+
 def test_execute_repair_handles_a_target_node_that_no_longer_exists(client):
     from coordinator.replication import _execute_repair
     from coordinator.db import SessionLocal
