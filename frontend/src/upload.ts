@@ -12,6 +12,7 @@ export class ChunkUploadError extends Error {
 export interface PlacementNode {
   id: number
   address: string
+  chunkToken: string
 }
 
 // 'client-error' means the body itself is invalid and will fail against every node --
@@ -20,7 +21,7 @@ export type PutChunkResult = 'ok' | 'retryable' | 'client-error'
 
 export interface UploadDeps {
   getPlacement: (chunkId: string, exclude: string[]) => Promise<PlacementNode[]>
-  putChunk: (address: string, chunkId: string, bytes: Uint8Array) => Promise<PutChunkResult>
+  putChunk: (address: string, chunkId: string, bytes: Uint8Array, token: string) => Promise<PutChunkResult>
   writeQuorum: number
 }
 
@@ -39,12 +40,14 @@ export async function putChunkToNode(
   address: string,
   chunkId: string,
   bytes: Uint8Array,
+  token: string,
 ): Promise<PutChunkResult> {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), CHUNK_PUT_TIMEOUT_MS)
   try {
     const response = await fetch(`http://${address}/chunks/${chunkId}`, {
       method: 'PUT',
+      headers: { Authorization: `Bearer ${token}` },
       body: bytes as BodyInit,
       signal: controller.signal,
     })
@@ -82,7 +85,10 @@ export async function uploadChunkWithQuorum(
     }
 
     const outcomes = await Promise.all(
-      fresh.map(async (n) => ({ node: n, result: await deps.putChunk(n.address, chunkId, bytes) })),
+      fresh.map(async (n) => ({
+        node: n,
+        result: await deps.putChunk(n.address, chunkId, bytes, n.chunkToken),
+      })),
     )
     for (const { node, result } of outcomes) {
       attempted.add(String(node.id))

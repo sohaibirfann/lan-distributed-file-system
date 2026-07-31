@@ -13,6 +13,7 @@ from coordinator.db import get_db, SessionLocal
 from coordinator.events import record_event
 from coordinator.models import Account, Chunk, ChunkPlacement, Event, Node
 from coordinator.replication import (
+    _bearer,
     _compute_repair_plans,
     _default_node_client,
     _execute_repair_plans,
@@ -24,6 +25,7 @@ from coordinator.schemas import (
     NodeDrainRequest,
     NodeHeartbeatRequest,
     NodeOut,
+    NodePlacementOut,
     NodeRegisterRequest,
 )
 from coordinator.settings import REPLICATION_FACTOR_KEY, WRITE_QUORUM_KEY, get_required_setting
@@ -44,6 +46,7 @@ def _apply_report(node: Node, body: NodeRegisterRequest) -> None:
     node.free_disk_bytes = body.free_disk_bytes
     node.used_bytes = body.used_bytes
     node.last_heartbeat_at = datetime.now(timezone.utc)
+    node.chunk_token = body.chunk_token
     node.draining = False  # a node that re-registers has come back, not left
 
 
@@ -100,7 +103,9 @@ def _release_surplus_placements(db: Session, node: Node) -> None:
             continue
 
         try:
-            _default_node_client(node.address).delete(f"/chunks/{chunk_hash}")
+            _default_node_client(node.address).delete(
+                f"/chunks/{chunk_hash}", headers=_bearer(node.chunk_token)
+            )
         except httpx.HTTPError as err:
             logger.warning(
                 "could not release surplus chunk %s from %s: %s", chunk_hash, node.address, err
@@ -256,7 +261,7 @@ def list_events(
     return db.query(Event).order_by(Event.id.desc()).limit(200).all()
 
 
-@router.get("/placement/{chunk_id}", response_model=list[NodeOut])
+@router.get("/placement/{chunk_id}", response_model=list[NodePlacementOut])
 def placement_for_chunk(
     chunk_id: str,
     exclude: list[str] = Query([]),

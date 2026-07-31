@@ -42,6 +42,7 @@ def register_with_coordinator(config: NodeConfig, client: httpx.Client) -> None:
             "capacity_budget_bytes": config.capacity_budget_bytes,
             "free_disk_bytes": free_disk_bytes,
             "used_bytes": measure_used_bytes(config.storage_directory),
+            "chunk_token": config.chunk_token,
         },
     )
     raise_with_coordinator_detail(register)

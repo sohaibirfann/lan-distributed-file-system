@@ -166,7 +166,16 @@ export function FilesPage() {
       const chunks = await uploadFileChunks(
         selected,
         key,
-        { getPlacement, putChunk: putChunkToNode, writeQuorum: write_quorum },
+        {
+          getPlacement: async (chunkId, exclude) =>
+            (await getPlacement(chunkId, exclude)).map((n) => ({
+              id: n.id,
+              address: n.address,
+              chunkToken: n.chunk_token,
+            })),
+          putChunk: putChunkToNode,
+          writeQuorum: write_quorum,
+        },
         4,
         bumpCompletedChunks,
       )
@@ -210,7 +219,7 @@ export function FilesPage() {
     const chunks: ChunkLocation[] = detail.chunks.map((c) => ({
       sequenceIndex: c.sequence_index,
       hash: c.hash,
-      replicas: c.nodes.map((n) => ({ nodeId: n.node_id, address: n.address })),
+      replicas: c.nodes.map((n) => ({ nodeId: n.node_id, address: n.address, token: n.chunk_token })),
     }))
     setTransferState({
       fileName: file.name,

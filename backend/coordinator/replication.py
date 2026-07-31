@@ -164,6 +164,10 @@ def _default_node_client(address: str) -> httpx.Client:
     return httpx.Client(base_url=f"http://{address}")
 
 
+def _bearer(chunk_token: str) -> dict[str, str]:
+    return {"Authorization": f"Bearer {chunk_token}"}
+
+
 def _execute_repair(
     db: Session, plan: RepairPlanOut, get_node_client: Callable[[str], httpx.Client]
 ) -> RepairResultOut:
@@ -181,7 +185,9 @@ def _execute_repair(
 
     # A transport failure here fails only this chunk, not the whole batch.
     try:
-        response = get_node_client(source_node.address).get(f"/chunks/{plan.hash}")
+        response = get_node_client(source_node.address).get(
+            f"/chunks/{plan.hash}", headers=_bearer(source_node.chunk_token)
+        )
     except httpx.HTTPError as err:
         return failed_result(f"could not reach source node: {err}")
 
@@ -203,7 +209,7 @@ def _execute_repair(
 
         try:
             put_response = get_node_client(target_node.address).put(
-                f"/chunks/{plan.hash}", content=data
+                f"/chunks/{plan.hash}", content=data, headers=_bearer(target_node.chunk_token)
             )
             ok = put_response.status_code == 200
         except httpx.HTTPError:
@@ -339,7 +345,9 @@ def run_one_gc_cycle() -> None:
         now = time.time()
         for node in db.query(Node).all():
             try:
-                response = _default_node_client(node.address).get("/chunks")
+                response = _default_node_client(node.address).get(
+                    "/chunks", headers=_bearer(node.chunk_token)
+                )
                 response.raise_for_status()
             except httpx.HTTPError as err:
                 logger.warning("could not list chunks on node %s: %s", node.address, err)
@@ -361,7 +369,9 @@ def run_one_gc_cycle() -> None:
                     continue
 
                 try:
-                    _default_node_client(node.address).delete(f"/chunks/{orphan_hash}")
+                    _default_node_client(node.address).delete(
+                        f"/chunks/{orphan_hash}", headers=_bearer(node.chunk_token)
+                    )
                     logger.info("reclaimed orphaned chunk %s from %s", orphan_hash, node.address)
                 except httpx.HTTPError as err:
                     logger.warning(

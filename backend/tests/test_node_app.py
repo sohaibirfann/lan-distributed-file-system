@@ -3,6 +3,8 @@ import hashlib
 import pytest
 from fastapi.testclient import TestClient
 
+from tests.test_nodes import chunk_auth_headers
+
 
 def _client(tmp_path, monkeypatch, **env):
     monkeypatch.setenv("STORAGE_DIRECTORY", str(tmp_path / "storage"))
@@ -11,6 +13,7 @@ def _client(tmp_path, monkeypatch, **env):
     monkeypatch.setenv("NODE_ADDRESS", "node.invalid:9000")
     monkeypatch.setenv("OWNER_USERNAME", "alice")
     monkeypatch.setenv("OWNER_PASSWORD", "hunter22")
+    monkeypatch.setenv("CHUNK_TOKEN", "test-chunk-token")
     for key, value in env.items():
         monkeypatch.setenv(key, value)
 
@@ -341,7 +344,7 @@ def test_stats_reports_chunk_count_and_bytes_used(tmp_path, monkeypatch):
     with _client(tmp_path, monkeypatch) as c:
         data = b"stats test chunk"
         chunk_id = hashlib.sha256(data).hexdigest()
-        c.put(f"/chunks/{chunk_id}", content=data)
+        c.put(f"/chunks/{chunk_id}", content=data, headers=chunk_auth_headers())
 
         response = c.get("/stats", auth=("alice", "hunter22"))
 

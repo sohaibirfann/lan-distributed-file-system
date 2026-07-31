@@ -11,7 +11,7 @@ import {
 } from './download'
 
 function replica(nodeId: number): ChunkReplica {
-  return { nodeId, address: `node-${nodeId}:9000` }
+  return { nodeId, address: `node-${nodeId}:9000`, token: `token-${nodeId}` }
 }
 
 describe('fetchChunkFromReplicas', () => {

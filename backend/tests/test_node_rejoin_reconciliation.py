@@ -1,7 +1,7 @@
 from contextlib import ExitStack
 
 from tests.test_auth import register
-from tests.test_nodes import login, register_node
+from tests.test_nodes import chunk_auth_headers, login, register_node
 from tests.test_replication_health import mark_down
 from tests.test_repair_execute import chunk_id_for, spawn_fake_node
 
@@ -37,9 +37,9 @@ def test_rejoining_node_releases_a_placement_repair_already_replaced(client, tmp
         fake_b = spawn_fake_node(stack, tmp_path, "b:9000", monkeypatch)
         fake_c = spawn_fake_node(stack, tmp_path, "c:9000", monkeypatch)
         fake_spare = spawn_fake_node(stack, tmp_path, "spare:9000", monkeypatch)
-        fake_a.put(f"/chunks/{chunk_hash}", content=data)
-        fake_b.put(f"/chunks/{chunk_hash}", content=data)
-        fake_c.put(f"/chunks/{chunk_hash}", content=data)
+        fake_a.put(f"/chunks/{chunk_hash}", content=data, headers=chunk_auth_headers())
+        fake_b.put(f"/chunks/{chunk_hash}", content=data, headers=chunk_auth_headers())
+        fake_c.put(f"/chunks/{chunk_hash}", content=data, headers=chunk_auth_headers())
 
         mark_down("a:9000")
 
@@ -63,7 +63,7 @@ def test_rejoining_node_releases_a_placement_repair_already_replaced(client, tmp
 
         register_node(client, address="a:9000")  # a rejoins, b/c/spare already satisfy RF
 
-        assert fake_a.get(f"/chunks/{chunk_hash}").status_code == 404
+        assert fake_a.get(f"/chunks/{chunk_hash}", headers=chunk_auth_headers()).status_code == 404
 
     detail = client.get(f"/files/{file_id}").json()
     node_ids_holding_chunk = {n["node_id"] for n in detail["chunks"][0]["nodes"]}
@@ -100,8 +100,8 @@ def test_rejoining_node_keeps_a_placement_still_needed_to_meet_replication_facto
     with ExitStack() as stack:
         fake_a = spawn_fake_node(stack, tmp_path, "a:9000", monkeypatch)
         fake_b = spawn_fake_node(stack, tmp_path, "b:9000", monkeypatch)
-        fake_a.put(f"/chunks/{chunk_hash}", content=data)
-        fake_b.put(f"/chunks/{chunk_hash}", content=data)
+        fake_a.put(f"/chunks/{chunk_hash}", content=data, headers=chunk_auth_headers())
+        fake_b.put(f"/chunks/{chunk_hash}", content=data, headers=chunk_auth_headers())
 
         mark_down("a:9000")
 
@@ -120,7 +120,7 @@ def test_rejoining_node_keeps_a_placement_still_needed_to_meet_replication_facto
 
         register_node(client, address="a:9000")  # a rejoins, only b is healthy elsewhere
 
-        assert fake_a.get(f"/chunks/{chunk_hash}").status_code == 200
+        assert fake_a.get(f"/chunks/{chunk_hash}", headers=chunk_auth_headers()).status_code == 200
 
     detail = client.get(f"/files/{file_id}").json()
     node_ids_holding_chunk = {n["node_id"] for n in detail["chunks"][0]["nodes"]}
@@ -178,9 +178,9 @@ def test_releasing_a_surplus_placement_does_not_destroy_a_different_files_shared
         fake_b = spawn_fake_node(stack, tmp_path, "b:9000", monkeypatch)
         fake_c = spawn_fake_node(stack, tmp_path, "c:9000", monkeypatch)
         fake_spare = spawn_fake_node(stack, tmp_path, "spare:9000", monkeypatch)
-        fake_a.put(f"/chunks/{chunk_hash}", content=data)
-        fake_b.put(f"/chunks/{chunk_hash}", content=data)
-        fake_c.put(f"/chunks/{chunk_hash}", content=data)
+        fake_a.put(f"/chunks/{chunk_hash}", content=data, headers=chunk_auth_headers())
+        fake_b.put(f"/chunks/{chunk_hash}", content=data, headers=chunk_auth_headers())
+        fake_c.put(f"/chunks/{chunk_hash}", content=data, headers=chunk_auth_headers())
 
         mark_down("a:9000")
 
@@ -200,7 +200,7 @@ def test_releasing_a_surplus_placement_does_not_destroy_a_different_files_shared
         client.post("/replication/repair")  # backfills file_A's chunk onto spare
         register_node(client, address="a:9000")  # a rejoins
 
-        assert fake_a.get(f"/chunks/{chunk_hash}").status_code == 200  # file_B's copy survives
+        assert fake_a.get(f"/chunks/{chunk_hash}", headers=chunk_auth_headers()).status_code == 200  # file_B's copy survives
 
 
 def test_first_time_registration_does_not_crash_reconciliation(client):

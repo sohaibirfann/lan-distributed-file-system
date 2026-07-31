@@ -6,7 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from tests.test_auth import register
-from tests.test_nodes import login, register_node
+from tests.test_nodes import chunk_auth_headers, login, register_node
 from tests.test_replication_config import _fresh_client
 from tests.test_repair_execute import chunk_id_for, spawn_fake_node
 
@@ -23,7 +23,7 @@ def test_gc_sweep_reclaims_a_chunk_the_node_holds_but_nothing_references(
         fake_n = spawn_fake_node(stack, tmp_path, "n:9000", monkeypatch)
         orphan = b"bytes nothing references"
         orphan_hash = chunk_id_for(orphan)
-        fake_n.put(f"/chunks/{orphan_hash}", content=orphan)
+        fake_n.put(f"/chunks/{orphan_hash}", content=orphan, headers=chunk_auth_headers())
 
         import coordinator.replication as coordinator_app_module
 
@@ -31,7 +31,7 @@ def test_gc_sweep_reclaims_a_chunk_the_node_holds_but_nothing_references(
 
         coordinator_app_module.run_one_gc_cycle()
 
-        assert fake_n.get(f"/chunks/{orphan_hash}").status_code == 404
+        assert fake_n.get(f"/chunks/{orphan_hash}", headers=chunk_auth_headers()).status_code == 404
 
 
 def test_gc_sweep_does_not_reclaim_a_chunk_younger_than_the_grace_period(
@@ -49,7 +49,7 @@ def test_gc_sweep_does_not_reclaim_a_chunk_younger_than_the_grace_period(
         fake_n = spawn_fake_node(stack, tmp_path, "n:9000", monkeypatch)
         data = b"uploaded but not yet registered"
         chunk_hash = chunk_id_for(data)
-        fake_n.put(f"/chunks/{chunk_hash}", content=data)
+        fake_n.put(f"/chunks/{chunk_hash}", content=data, headers=chunk_auth_headers())
 
         import coordinator.replication as coordinator_app_module
 
@@ -57,7 +57,7 @@ def test_gc_sweep_does_not_reclaim_a_chunk_younger_than_the_grace_period(
 
         coordinator_app_module.run_one_gc_cycle()  # default grace period applies
 
-        assert fake_n.get(f"/chunks/{chunk_hash}").status_code == 200
+        assert fake_n.get(f"/chunks/{chunk_hash}", headers=chunk_auth_headers()).status_code == 200
 
 
 def test_gc_sweep_does_not_touch_a_chunk_that_is_still_referenced(client, tmp_path, monkeypatch):
@@ -86,7 +86,7 @@ def test_gc_sweep_does_not_touch_a_chunk_that_is_still_referenced(client, tmp_pa
 
     with ExitStack() as stack:
         fake_n = spawn_fake_node(stack, tmp_path, "n:9000", monkeypatch)
-        fake_n.put(f"/chunks/{chunk_hash}", content=data)
+        fake_n.put(f"/chunks/{chunk_hash}", content=data, headers=chunk_auth_headers())
 
         import coordinator.replication as coordinator_app_module
 
@@ -94,7 +94,7 @@ def test_gc_sweep_does_not_touch_a_chunk_that_is_still_referenced(client, tmp_pa
 
         coordinator_app_module.run_one_gc_cycle()
 
-        assert fake_n.get(f"/chunks/{chunk_hash}").status_code == 200
+        assert fake_n.get(f"/chunks/{chunk_hash}", headers=chunk_auth_headers()).status_code == 200
 
 
 def test_gc_sweep_survives_an_unreachable_node(client, monkeypatch):
@@ -107,7 +107,7 @@ def test_gc_sweep_survives_an_unreachable_node(client, monkeypatch):
     import coordinator.replication as coordinator_app_module
 
     class UnreachableClient:
-        def get(self, url):
+        def get(self, url, **kwargs):
             raise httpx.ConnectError("connection refused")
 
     monkeypatch.setattr(

@@ -64,6 +64,7 @@ class NodeRegisterRequest(BaseModel):
     capacity_budget_bytes: int = Field(gt=0)
     free_disk_bytes: int = Field(ge=0)
     used_bytes: int = Field(ge=0)
+    chunk_token: str = Field(min_length=1)
 
     _check_address = field_validator("address")(_validate_address)
 
@@ -101,6 +102,14 @@ class NodeOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class NodePlacementOut(BaseModel):
+    id: int
+    address: str
+    chunk_token: str
+
+    model_config = {"from_attributes": True}
+
+
 class ChunkIn(BaseModel):
     sequence_index: int = Field(ge=0)
     hash: str
@@ -134,6 +143,7 @@ class FileOut(BaseModel):
 class ChunkPlacementOut(BaseModel):
     node_id: int
     address: str
+    chunk_token: str
 
 
 class ChunkDetailOut(BaseModel):

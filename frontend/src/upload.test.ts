@@ -10,7 +10,7 @@ import {
 } from './upload'
 
 function node(id: number): PlacementNode {
-  return { id, address: `node-${id}:9000` }
+  return { id, address: `node-${id}:9000`, chunkToken: `token-${id}` }
 }
 
 describe('uploadChunkWithQuorum', () => {

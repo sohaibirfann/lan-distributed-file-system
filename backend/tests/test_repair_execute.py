@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 
 from tests.test_auth import register
 from tests.test_files import make_file_body
-from tests.test_nodes import login, register_node
+from tests.test_nodes import chunk_auth_headers, login, register_node
 from tests.test_replication_health import mark_down
 
 
@@ -22,6 +22,7 @@ def spawn_fake_node(stack: ExitStack, tmp_path, address: str, monkeypatch):
     monkeypatch.setenv("NODE_ADDRESS", address)
     monkeypatch.setenv("OWNER_USERNAME", "alice")
     monkeypatch.setenv("OWNER_PASSWORD", "hunter22")
+    monkeypatch.setenv("CHUNK_TOKEN", "test-chunk-token")
 
     import node.app as node_app_module
 
@@ -68,8 +69,8 @@ def test_repair_copies_chunk_to_target_and_records_placement(client, tmp_path, m
         fake_a = spawn_fake_node(stack, tmp_path, "a:9000", monkeypatch)
         fake_b = spawn_fake_node(stack, tmp_path, "b:9000", monkeypatch)
         fake_spare = spawn_fake_node(stack, tmp_path, "spare:9000", monkeypatch)
-        fake_a.put(f"/chunks/{chunk_hash}", content=data)
-        fake_b.put(f"/chunks/{chunk_hash}", content=data)
+        fake_a.put(f"/chunks/{chunk_hash}", content=data, headers=chunk_auth_headers())
+        fake_b.put(f"/chunks/{chunk_hash}", content=data, headers=chunk_auth_headers())
 
         mark_down("a:9000")
 
@@ -90,7 +91,7 @@ def test_repair_copies_chunk_to_target_and_records_placement(client, tmp_path, m
         assert results[0]["error"] is None
 
         # The spare node actually received the bytes, not just a DB row.
-        assert fake_spare.get(f"/chunks/{chunk_hash}").content == data
+        assert fake_spare.get(f"/chunks/{chunk_hash}", headers=chunk_auth_headers()).content == data
 
     detail = client.get(f"/files/{file_id}").json()
     node_ids_holding_chunk = {n["node_id"] for n in detail["chunks"][0]["nodes"]}
@@ -184,7 +185,7 @@ def test_repair_handles_a_genuinely_unreachable_source_without_crashing_the_batc
     mark_down("a:9000")
 
     class UnreachableClient:
-        def get(self, url):
+        def get(self, url, **kwargs):
             raise httpx.ConnectError("connection refused")
 
     import coordinator.replication as coordinator_app_module
@@ -235,7 +236,7 @@ def test_repair_continues_to_other_targets_when_one_target_is_unreachable(
     with ExitStack() as stack:
         fake_b = spawn_fake_node(stack, tmp_path, "b:9000", monkeypatch)
         fake_spare_ok = spawn_fake_node(stack, tmp_path, "spare-ok:9000", monkeypatch)
-        fake_b.put(f"/chunks/{chunk_hash}", content=data)
+        fake_b.put(f"/chunks/{chunk_hash}", content=data, headers=chunk_auth_headers())
 
         mark_down("a:9000")
 
@@ -290,7 +291,7 @@ def test_repair_respects_the_configured_concurrency_cap(client, monkeypatch):
     lock = threading.Lock()
 
     class SlowClient:
-        def get(self, url):
+        def get(self, url, **kwargs):
             nonlocal in_flight, max_in_flight
             with lock:
                 in_flight += 1
@@ -305,7 +306,7 @@ def test_repair_respects_the_configured_concurrency_cap(client, monkeypatch):
 
             return Response()
 
-        def put(self, url, content):
+        def put(self, url, content, **kwargs):
             class Response:
                 status_code = 200
 
@@ -366,12 +367,12 @@ def test_repair_batch_survives_one_chunk_raising_an_unexpected_error(client, mon
 
     class SourceClient:
         # Fail only the buggy chunk's fetch, identified by hash in the URL.
-        def get(self, url):
+        def get(self, url, **kwargs):
             if buggy_hash in url:
                 raise ValueError("simulated bug, not an httpx error")
             return Response()
 
-        def put(self, url, content):
+        def put(self, url, content, **kwargs):
             return Response()
 
     import coordinator.replication as coordinator_app_module
@@ -468,7 +469,7 @@ def test_execute_repair_handles_a_target_node_that_no_longer_exists(client):
         content = data
 
     class FakeClient:
-        def get(self, url):
+        def get(self, url, **kwargs):
             return FakeResponse()
 
     db = SessionLocal()

@@ -2,7 +2,7 @@ import hashlib
 from contextlib import ExitStack
 
 from tests.test_auth import register
-from tests.test_nodes import login, register_node
+from tests.test_nodes import chunk_auth_headers, login, register_node
 from tests.test_repair_execute import spawn_fake_node
 
 
@@ -37,8 +37,8 @@ def test_deleting_a_file_reclaims_its_chunk_bytes_from_nodes(client, tmp_path, m
     with ExitStack() as stack:
         fake_a = spawn_fake_node(stack, tmp_path, "a:9000", monkeypatch)
         fake_b = spawn_fake_node(stack, tmp_path, "b:9000", monkeypatch)
-        fake_a.put(f"/chunks/{chunk_hash}", content=data)
-        fake_b.put(f"/chunks/{chunk_hash}", content=data)
+        fake_a.put(f"/chunks/{chunk_hash}", content=data, headers=chunk_auth_headers())
+        fake_b.put(f"/chunks/{chunk_hash}", content=data, headers=chunk_auth_headers())
 
         import coordinator.files as coordinator_app_module
 
@@ -51,8 +51,8 @@ def test_deleting_a_file_reclaims_its_chunk_bytes_from_nodes(client, tmp_path, m
         response = client.delete(f"/files/{file_id}")
 
         assert response.status_code == 204
-        assert fake_a.get(f"/chunks/{chunk_hash}").status_code == 404
-        assert fake_b.get(f"/chunks/{chunk_hash}").status_code == 404
+        assert fake_a.get(f"/chunks/{chunk_hash}", headers=chunk_auth_headers()).status_code == 404
+        assert fake_b.get(f"/chunks/{chunk_hash}", headers=chunk_auth_headers()).status_code == 404
 
 
 def test_deleting_a_file_does_not_fail_when_a_node_is_unreachable(client, tmp_path, monkeypatch):
@@ -83,7 +83,7 @@ def test_deleting_a_file_does_not_fail_when_a_node_is_unreachable(client, tmp_pa
 
     with ExitStack() as stack:
         fake_a = spawn_fake_node(stack, tmp_path, "a:9000", monkeypatch)
-        fake_a.put(f"/chunks/{chunk_hash}", content=data)
+        fake_a.put(f"/chunks/{chunk_hash}", content=data, headers=chunk_auth_headers())
 
         def get_node_client(address):
             if address == "b:9000":
@@ -99,7 +99,7 @@ def test_deleting_a_file_does_not_fail_when_a_node_is_unreachable(client, tmp_pa
         response = client.delete(f"/files/{file_id}")
 
         assert response.status_code == 204
-        assert fake_a.get(f"/chunks/{chunk_hash}").status_code == 404
+        assert fake_a.get(f"/chunks/{chunk_hash}", headers=chunk_auth_headers()).status_code == 404
 
     assert client.get(f"/files/{file_id}").status_code == 404
 
@@ -137,7 +137,7 @@ def test_deleting_a_file_does_not_destroy_another_files_shared_chunk(client, tmp
 
     with ExitStack() as stack:
         fake_n = spawn_fake_node(stack, tmp_path, "n:9000", monkeypatch)
-        fake_n.put(f"/chunks/{chunk_hash}", content=data)
+        fake_n.put(f"/chunks/{chunk_hash}", content=data, headers=chunk_auth_headers())
 
         import coordinator.files as coordinator_app_module
 
@@ -147,7 +147,7 @@ def test_deleting_a_file_does_not_destroy_another_files_shared_chunk(client, tmp
 
         assert response.status_code == 204
         # file_b's chunk must still be physically present on the node.
-        assert fake_n.get(f"/chunks/{chunk_hash}").status_code == 200
+        assert fake_n.get(f"/chunks/{chunk_hash}", headers=chunk_auth_headers()).status_code == 200
         assert client.get(f"/files/{file_b}").status_code == 200
 
     # Deleting the last remaining reference must then actually reclaim it.
@@ -160,4 +160,4 @@ def test_deleting_a_file_does_not_destroy_another_files_shared_chunk(client, tmp
 
         client.delete(f"/files/{file_b}")
 
-        assert fake_n.get(f"/chunks/{chunk_hash}").status_code == 404
+        assert fake_n.get(f"/chunks/{chunk_hash}", headers=chunk_auth_headers()).status_code == 404

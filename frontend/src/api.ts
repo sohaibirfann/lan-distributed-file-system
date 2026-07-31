@@ -177,7 +177,13 @@ export function getReplicationConfig(): Promise<ReplicationConfig> {
   return get('/config/replication')
 }
 
-export function getPlacement(chunkId: string, exclude: string[]): Promise<Node[]> {
+export interface NodePlacement {
+  id: number
+  address: string
+  chunk_token: string
+}
+
+export function getPlacement(chunkId: string, exclude: string[]): Promise<NodePlacement[]> {
   const params = new URLSearchParams()
   for (const id of exclude) params.append('exclude', id)
   const query = params.toString()
@@ -204,6 +210,7 @@ export function createFile(body: FileCreateBody): Promise<FileEntry> {
 export interface ChunkPlacement {
   node_id: number
   address: string
+  chunk_token: string
 }
 
 export interface ChunkDetail {

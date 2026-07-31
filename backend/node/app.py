@@ -7,7 +7,12 @@ from contextlib import asynccontextmanager
 
 import httpx
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
-from fastapi.security import HTTPBasic, HTTPBasicCredentials
+from fastapi.security import (
+    HTTPAuthorizationCredentials,
+    HTTPBasic,
+    HTTPBasicCredentials,
+    HTTPBearer,
+)
 from starlette.middleware.cors import CORSMiddleware
 
 from node.chunks import (
@@ -103,8 +108,19 @@ def stats(request: Request, _: None = Depends(require_owner_auth)) -> dict[str, 
     }
 
 
+chunk_security = HTTPBearer()
+
+
+def require_chunk_token(
+    request: Request, credentials: HTTPAuthorizationCredentials = Depends(chunk_security)
+) -> None:
+    config = request.app.state.config
+    if not secrets.compare_digest(credentials.credentials.encode(), config.chunk_token.encode()):
+        raise HTTPException(status_code=401, detail="Invalid chunk token")
+
+
 @app.get("/chunks")
-def list_chunks(request: Request) -> list[dict[str, str | float]]:
+def list_chunks(request: Request, _: None = Depends(require_chunk_token)) -> list[dict[str, str | float]]:
     return [
         {"hash": chunk_id, "stored_at": stored_at}
         for chunk_id, stored_at in list_chunk_inventory(request.app.state.config)
@@ -112,7 +128,9 @@ def list_chunks(request: Request) -> list[dict[str, str | float]]:
 
 
 @app.put("/chunks/{chunk_id}")
-async def upload_chunk(chunk_id: str, request: Request) -> dict[str, str]:
+async def upload_chunk(
+    chunk_id: str, request: Request, _: None = Depends(require_chunk_token)
+) -> dict[str, str]:
     content_length = request.headers.get("content-length")
     if content_length is not None and int(content_length) > MAX_CHUNK_BYTES:
         raise HTTPException(status_code=413, detail="chunk exceeds the maximum accepted size")
@@ -137,7 +155,9 @@ async def upload_chunk(chunk_id: str, request: Request) -> dict[str, str]:
 
 
 @app.get("/chunks/{chunk_id}")
-def download_chunk(chunk_id: str, request: Request) -> Response:
+def download_chunk(
+    chunk_id: str, request: Request, _: None = Depends(require_chunk_token)
+) -> Response:
     try:
         data = retrieve_chunk(request.app.state.config, chunk_id)
     except InvalidChunkId as err:
@@ -150,7 +170,9 @@ def download_chunk(chunk_id: str, request: Request) -> Response:
 
 
 @app.delete("/chunks/{chunk_id}", status_code=204)
-async def delete_chunk_route(chunk_id: str, request: Request) -> None:
+async def delete_chunk_route(
+    chunk_id: str, request: Request, _: None = Depends(require_chunk_token)
+) -> None:
     try:
         await asyncio.to_thread(delete_chunk, request.app.state.config, chunk_id)
     except InvalidChunkId as err:

@@ -7,11 +7,21 @@ from shared.placement import NodeState
 from tests.test_auth import register
 
 
+CHUNK_TOKEN = "test-chunk-token"
+
+
+def chunk_auth_headers(token=CHUNK_TOKEN):
+    return {"Authorization": f"Bearer {token}"}
+
+
 def login(client, username="alice", password="hunter22"):
     return client.post("/login", json={"username": username, "password": password})
 
 
-def register_node(client, address="192.168.1.10:9000", capacity_gb=10, free_disk_gb=10, used_gb=0):
+def register_node(
+    client, address="192.168.1.10:9000", capacity_gb=10, free_disk_gb=10, used_gb=0,
+    chunk_token=CHUNK_TOKEN,
+):
     gb = 1024**3
     return client.post(
         "/nodes/register",
@@ -20,6 +30,7 @@ def register_node(client, address="192.168.1.10:9000", capacity_gb=10, free_disk
             "capacity_budget_bytes": capacity_gb * gb,
             "free_disk_bytes": free_disk_gb * gb,
             "used_bytes": used_gb * gb,
+            "chunk_token": chunk_token,
         },
     )
 
@@ -95,6 +106,7 @@ def test_racing_registration_conflicts_instead_of_looping(client, monkeypatch):
                 capacity_budget_bytes=1,
                 free_disk_bytes=1,
                 used_bytes=0,
+                chunk_token="test-chunk-token",
             )
         )
         db.commit()
@@ -106,6 +118,7 @@ def test_racing_registration_conflicts_instead_of_looping(client, monkeypatch):
             capacity_budget_bytes=10 * 1024**3,
             free_disk_bytes=5 * 1024**3,
             used_bytes=0,
+            chunk_token="test-chunk-token",
         )
         try:
             app_module.register_node(body, BackgroundTasks(), acct, db)
@@ -130,6 +143,40 @@ def test_second_owner_cannot_claim_an_address_already_registered(client):
 
     login(client, "bob", "hunter33")
     assert register_node(client).status_code == 409
+
+
+def test_registration_requires_a_chunk_token(client):
+    register(client)
+    login(client)
+
+    gb = 1024**3
+    response = client.post(
+        "/nodes/register",
+        json={
+            "address": "192.168.1.10:9000",
+            "capacity_budget_bytes": 10 * gb,
+            "free_disk_bytes": 10 * gb,
+            "used_bytes": 0,
+        },
+    )
+
+    assert response.status_code == 422
+
+
+def test_re_registering_updates_the_stored_chunk_token(client):
+    from coordinator.db import SessionLocal
+    from coordinator.models import Node
+
+    register(client)
+    login(client)
+    register_node(client, chunk_token="old-token")
+    register_node(client, chunk_token="new-token")
+
+    db = SessionLocal()
+    try:
+        assert db.query(Node).first().chunk_token == "new-token"
+    finally:
+        db.close()
 
 
 def heartbeat(client, address="192.168.1.10:9000", free_disk_gb=8, used_gb=2):

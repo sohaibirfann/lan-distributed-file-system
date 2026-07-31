@@ -1,6 +1,6 @@
 from tests.test_auth import register
 from tests.test_files import make_file_body
-from tests.test_nodes import login, register_node
+from tests.test_nodes import chunk_auth_headers, login, register_node
 from tests.test_replication_health import mark_down
 from tests.test_repair_execute import chunk_id_for
 
@@ -98,8 +98,8 @@ def test_repair_action_is_recorded_as_an_event(client, tmp_path, monkeypatch):
         fake_a = spawn_fake_node(stack, tmp_path, "a:9000", monkeypatch)
         fake_b = spawn_fake_node(stack, tmp_path, "b:9000", monkeypatch)
         fake_spare = spawn_fake_node(stack, tmp_path, "spare:9000", monkeypatch)
-        fake_a.put(f"/chunks/{chunk_hash}", content=data)
-        fake_b.put(f"/chunks/{chunk_hash}", content=data)
+        fake_a.put(f"/chunks/{chunk_hash}", content=data, headers=chunk_auth_headers())
+        fake_b.put(f"/chunks/{chunk_hash}", content=data, headers=chunk_auth_headers())
 
         mark_down("a:9000")
 
@@ -152,8 +152,8 @@ def test_manual_repair_endpoint_also_records_an_event(client, tmp_path, monkeypa
         fake_a = spawn_fake_node(stack, tmp_path, "a:9000", monkeypatch)
         fake_b = spawn_fake_node(stack, tmp_path, "b:9000", monkeypatch)
         fake_spare = spawn_fake_node(stack, tmp_path, "spare:9000", monkeypatch)
-        fake_a.put(f"/chunks/{chunk_hash}", content=data)
-        fake_b.put(f"/chunks/{chunk_hash}", content=data)
+        fake_a.put(f"/chunks/{chunk_hash}", content=data, headers=chunk_auth_headers())
+        fake_b.put(f"/chunks/{chunk_hash}", content=data, headers=chunk_auth_headers())
 
         mark_down("a:9000")
 

@@ -11,7 +11,7 @@ from coordinator.auth import require_session
 from coordinator.db import get_db
 from coordinator.events import record_event
 from coordinator.models import Account, Chunk, ChunkPlacement, File, Node
-from coordinator.replication import _default_node_client
+from coordinator.replication import _bearer, _default_node_client
 from coordinator.schemas import (
     ChunkDetailOut,
     ChunkPlacementOut,
@@ -129,7 +129,7 @@ def get_file(
                 hash=chunk.hash,
                 size_bytes=chunk.size_bytes,
                 nodes=[
-                    ChunkPlacementOut(node_id=node.id, address=node.address)
+                    ChunkPlacementOut(node_id=node.id, address=node.address, chunk_token=node.chunk_token)
                     for _, node in placements
                 ],
             )
@@ -175,7 +175,7 @@ def delete_file(
     # Chunks aren't deduplicated across files, so node_id is kept alongside
     # address for the post-commit check below to tell if another file still needs it.
     to_reclaim = (
-        db.query(Chunk.hash, Node.id, Node.address)
+        db.query(Chunk.hash, Node.id, Node.address, Node.chunk_token)
         .join(ChunkPlacement, ChunkPlacement.chunk_id == Chunk.id)
         .join(Node, ChunkPlacement.node_id == Node.id)
         .filter(Chunk.file_id == file_id)
@@ -193,7 +193,7 @@ def delete_file(
     db.commit()
 
     # Best-effort: an unreachable node keeps the bytes until the gc sweep catches up.
-    for chunk_hash, node_id, address in to_reclaim:
+    for chunk_hash, node_id, address, chunk_token in to_reclaim:
         # This file's own rows are already gone, so any remaining match here
         # belongs to a different file that still needs this exact blob.
         still_needed = (
@@ -207,7 +207,7 @@ def delete_file(
             continue
 
         try:
-            _default_node_client(address).delete(f"/chunks/{chunk_hash}")
+            _default_node_client(address).delete(f"/chunks/{chunk_hash}", headers=_bearer(chunk_token))
         except httpx.HTTPError as err:
             logger.warning("could not reclaim chunk %s from %s: %s", chunk_hash, address, err)
 

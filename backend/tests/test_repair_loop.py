@@ -7,7 +7,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from tests.test_auth import register
-from tests.test_nodes import login, register_node
+from tests.test_nodes import chunk_auth_headers, login, register_node
 from tests.test_replication_config import _fresh_client
 from tests.test_replication_health import mark_down
 from tests.test_repair_execute import chunk_id_for, spawn_fake_node
@@ -116,8 +116,8 @@ def test_run_one_repair_cycle_logs_results(client, tmp_path, monkeypatch, caplog
         fake_a = spawn_fake_node(stack, tmp_path, "a:9000", monkeypatch)
         fake_b = spawn_fake_node(stack, tmp_path, "b:9000", monkeypatch)
         fake_spare = spawn_fake_node(stack, tmp_path, "spare:9000", monkeypatch)
-        fake_a.put(f"/chunks/{chunk_hash}", content=data)
-        fake_b.put(f"/chunks/{chunk_hash}", content=data)
+        fake_a.put(f"/chunks/{chunk_hash}", content=data, headers=chunk_auth_headers())
+        fake_b.put(f"/chunks/{chunk_hash}", content=data, headers=chunk_auth_headers())
 
         mark_down("a:9000")
 
@@ -164,8 +164,8 @@ def test_run_one_repair_cycle_performs_a_real_repair(client, tmp_path, monkeypat
         fake_a = spawn_fake_node(stack, tmp_path, "a:9000", monkeypatch)
         fake_b = spawn_fake_node(stack, tmp_path, "b:9000", monkeypatch)
         fake_spare = spawn_fake_node(stack, tmp_path, "spare:9000", monkeypatch)
-        fake_a.put(f"/chunks/{chunk_hash}", content=data)
-        fake_b.put(f"/chunks/{chunk_hash}", content=data)
+        fake_a.put(f"/chunks/{chunk_hash}", content=data, headers=chunk_auth_headers())
+        fake_b.put(f"/chunks/{chunk_hash}", content=data, headers=chunk_auth_headers())
 
         mark_down("a:9000")
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import secrets
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -18,6 +19,7 @@ class NodeConfig:
     node_address: str
     owner_username: str
     owner_password: str = field(repr=False)
+    chunk_token: str = field(repr=False, default="unconfigured")
     heartbeat_interval_seconds: int = 10
 
 
@@ -83,5 +85,6 @@ def load_config() -> NodeConfig:
         node_address=_str_from_env("NODE_ADDRESS"),
         owner_username=_str_from_env("OWNER_USERNAME"),
         owner_password=_str_from_env("OWNER_PASSWORD"),
+        chunk_token=os.environ.get("CHUNK_TOKEN") or secrets.token_hex(32),
         heartbeat_interval_seconds=heartbeat_interval_seconds,
     )

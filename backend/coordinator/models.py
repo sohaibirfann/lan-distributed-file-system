@@ -39,6 +39,7 @@ class Node(Base):
     capacity_budget_bytes: Mapped[int]
     free_disk_bytes: Mapped[int]
     used_bytes: Mapped[int]
+    chunk_token: Mapped[str] = mapped_column(String)
     draining: Mapped[bool] = mapped_column(default=False)
     registered_at: Mapped[datetime] = mapped_column(UTCDateTime, default=_utcnow)
     last_heartbeat_at: Mapped[datetime] = mapped_column(UTCDateTime, default=_utcnow)

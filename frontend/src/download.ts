@@ -12,6 +12,7 @@ export class ChunkDownloadError extends Error {
 export interface ChunkReplica {
   nodeId: number
   address: string
+  token: string
 }
 
 export interface ChunkLocation {
@@ -21,18 +22,25 @@ export interface ChunkLocation {
 }
 
 export interface DownloadDeps {
-  fetchChunk: (address: string, chunkId: string) => Promise<Uint8Array | null>
+  fetchChunk: (address: string, chunkId: string, token: string) => Promise<Uint8Array | null>
   reportUnavailable: (chunkId: string, nodeId: number) => Promise<void>
 }
 
 const DEFAULT_CHUNK_CONCURRENCY = 4
 const CHUNK_FETCH_TIMEOUT_MS = 30_000
 
-export async function fetchChunkFromNode(address: string, chunkId: string): Promise<Uint8Array | null> {
+export async function fetchChunkFromNode(
+  address: string,
+  chunkId: string,
+  token: string,
+): Promise<Uint8Array | null> {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), CHUNK_FETCH_TIMEOUT_MS)
   try {
-    const response = await fetch(`http://${address}/chunks/${chunkId}`, { signal: controller.signal })
+    const response = await fetch(`http://${address}/chunks/${chunkId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: controller.signal,
+    })
     if (!response.ok) return null
     return new Uint8Array(await response.arrayBuffer())
   } catch {
@@ -50,7 +58,7 @@ export async function fetchChunkFromReplicas(
   deps: DownloadDeps,
 ): Promise<Uint8Array> {
   for (const replica of replicas) {
-    const bytes = await deps.fetchChunk(replica.address, chunkId)
+    const bytes = await deps.fetchChunk(replica.address, chunkId, replica.token)
     if (bytes !== null && (await hashChunk(bytes)) === chunkId) return bytes
     await deps.reportUnavailable(chunkId, replica.nodeId).catch(() => {})
   }
