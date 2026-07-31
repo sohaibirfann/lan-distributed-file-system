@@ -46,6 +46,11 @@ async function getCachedFileDetail(id: number): Promise<FileDetail> {
   return detail
 }
 
+// A deleted file's id can be reused, so its cache entry must not survive.
+function invalidateFileDetailCache(id: number) {
+  fileDetailCache.delete(id)
+}
+
 export function FilesPage() {
   const [files, setFiles] = useState<FileEntry[]>([])
   const [loading, setLoading] = useState(true)
@@ -85,6 +90,7 @@ export function FilesPage() {
     setError(null)
     try {
       await deleteFile(file.id)
+      invalidateFileDetailCache(file.id)
       setFiles((current) => current.filter((f) => f.id !== file.id))
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'could not delete file')
@@ -113,6 +119,7 @@ export function FilesPage() {
     if (!existing) return
     try {
       await deleteFile(existing.id)
+      invalidateFileDetailCache(existing.id)
       setFiles((current) => current.filter((f) => f.id !== existing.id))
     } catch {
       setError(
@@ -194,6 +201,11 @@ export function FilesPage() {
     }
 
     const detail = await getCachedFileDetail(file.id)
+    if (detail.id !== file.id) {
+      setError('File details are out of date -- try again.')
+      await saveTarget.abort()
+      return
+    }
     const chunks: ChunkLocation[] = detail.chunks.map((c) => ({
       sequenceIndex: c.sequence_index,
       hash: c.hash,

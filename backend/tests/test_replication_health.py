@@ -89,6 +89,20 @@ def test_chunk_with_all_replicas_down_is_unavailable(client):
     assert body[0]["healthy_node_ids"] == []
 
 
+def test_draining_replica_is_under_replicated(client):
+    register(client)
+    login(client)
+    node_ids = [register_node(client, address=f"n{i}:9000").json()["id"] for i in range(3)]
+    client.post("/files", json=make_file_body(chunk_sizes=(100,), node_ids=node_ids))
+
+    mark_draining("n0:9000")
+
+    body = client.get("/replication/health").json()
+    assert len(body) == 1
+    assert body[0]["status"] == "under_replicated"
+    assert set(body[0]["healthy_node_ids"]) == set(node_ids[1:])
+
+
 def test_suspect_node_still_counts_as_a_healthy_replica(client):
     # Repair only kicks in once a node is confirmed DOWN, not merely SUSPECT.
     register(client)

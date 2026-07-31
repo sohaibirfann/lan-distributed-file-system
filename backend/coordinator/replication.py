@@ -70,11 +70,12 @@ def replication_health(
     at_risk = []
     for chunk in db.query(Chunk).all():
         placements = db.query(ChunkPlacement).filter(ChunkPlacement.chunk_id == chunk.id).all()
-        # Only DOWN is presumed lost; SUSPECT/DRAINING replicas still count as healthy.
+        # DOWN is presumed lost; DRAINING won't stay a replica either, so neither counts.
         healthy_node_ids = [
             placement.node_id
             for placement in placements
-            if placement.node_id in node_states and node_states[placement.node_id] is not NodeState.DOWN
+            if placement.node_id in node_states
+            and node_states[placement.node_id] not in (NodeState.DOWN, NodeState.DRAINING)
         ]
 
         if len(healthy_node_ids) >= replication_factor:
