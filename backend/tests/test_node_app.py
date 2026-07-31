@@ -330,12 +330,23 @@ def test_stats_rejects_wrong_password(tmp_path, monkeypatch):
         assert response.status_code == 401
 
 
-def test_shutdown_announces_drain_without_raising_when_coordinator_is_unreachable(
-    tmp_path, monkeypatch, caplog
-):
+def test_drain_on_shutdown_logs_without_raising_when_coordinator_is_unreachable(tmp_path, caplog):
+    import httpx
+
+    from node.app import drain_on_shutdown
+    from node.config import NodeConfig
+
+    class UnreachableClient:
+        def post(self, url, **kwargs):
+            raise httpx.ConnectError("connection refused")
+
+    config = NodeConfig(
+        storage_directory=tmp_path, capacity_budget_bytes=0, coordinator_address="",
+        node_address="n:9000", owner_username="", owner_password="", chunk_token="t",
+    )
+
     with caplog.at_level("WARNING", logger="node.app"):
-        with _client(tmp_path, monkeypatch):
-            pass  # exiting here triggers lifespan shutdown, which posts to /nodes/drain
+        drain_on_shutdown(config, UnreachableClient())
 
     assert any("drain request failed" in record.message for record in caplog.records)
 

@@ -24,7 +24,7 @@ from node.chunks import (
     retrieve_chunk,
     store_chunk,
 )
-from node.config import load_config
+from node.config import NodeConfig, load_config
 from node.heartbeat import heartbeat_loop
 from node.registration import measure_used_bytes, register_with_coordinator
 
@@ -38,6 +38,17 @@ logger = logging.getLogger(__name__)
 
 # Mutated in place from lifespan startup -- CORSMiddleware keeps this by reference.
 cors_allowed_origins: list[str] = []
+
+
+def drain_on_shutdown(config: NodeConfig, client: httpx.Client) -> None:
+    try:
+        resp = client.post("/nodes/drain", json={"address": config.node_address})
+        resp.raise_for_status()
+        remaining = resp.json()["remaining_chunks"]
+        if remaining:
+            logger.warning("drain finished with %d chunk(s) still needing a home", remaining)
+    except httpx.HTTPError as err:
+        logger.warning("drain request failed: %s", err)
 
 
 @asynccontextmanager
@@ -57,14 +68,6 @@ async def lifespan(app: FastAPI):
         finally:
             stop.set()
             await task  # waits for any in-flight beat to actually finish
-            try:
-                resp = client.post("/nodes/drain", json={"address": config.node_address})
-                resp.raise_for_status()
-                remaining = resp.json()["remaining_chunks"]
-                if remaining:
-                    logger.warning("drain finished with %d chunk(s) still needing a home", remaining)
-            except httpx.HTTPError as err:
-                logger.warning("drain request failed: %s", err)
 
 
 app = FastAPI(lifespan=lifespan)
