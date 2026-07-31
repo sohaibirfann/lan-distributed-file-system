@@ -165,6 +165,13 @@ def register_node(
     if node is not None:
         if node.owner_account_id != account.id:
             raise HTTPException(status_code=409, detail="Address is already registered")
+        if node.last_known_state != NodeState.UP.value:
+            record_event(
+                db,
+                "node_state_transition",
+                f"node {node.id} ({node.address}) transitioned {node.last_known_state} -> up",
+            )
+            node.last_known_state = NodeState.UP.value
         _apply_report(node, body)
         db.commit()
         db.refresh(node)

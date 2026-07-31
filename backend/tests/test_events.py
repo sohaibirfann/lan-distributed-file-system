@@ -32,6 +32,24 @@ def test_node_going_down_is_recorded_as_an_event(client):
     )
 
 
+def test_node_coming_back_is_recorded_as_an_event_without_waiting_for_repair(client):
+    register(client)
+    login(client)
+    register_node(client, address="a:9000")
+
+    import coordinator.replication as coordinator_app_module
+
+    mark_down("a:9000")
+    coordinator_app_module.run_one_repair_cycle()
+
+    register_node(client, address="a:9000")  # re-registers, no repair cycle run since
+
+    events = client.get("/events").json()
+    assert any(
+        e["kind"] == "node_state_transition" and "down -> up" in e["message"] for e in events
+    )
+
+
 def test_node_state_transition_is_not_re_recorded_once_settled(client):
     register(client)
     login(client)
