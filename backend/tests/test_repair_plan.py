@@ -163,6 +163,8 @@ def test_repair_plan_evaluates_the_same_instant_for_every_node(client, monkeypat
 def test_placement_referencing_a_nonexistent_node_does_not_count_as_healthy(client):
     # There's no node-deregistration path today, so this simulates a stale
     # placement row the same way the DB would end up with one if there were.
+    from sqlalchemy import text
+
     from coordinator.db import SessionLocal
     from coordinator.models import Chunk, ChunkPlacement
 
@@ -175,8 +177,12 @@ def test_placement_referencing_a_nonexistent_node_does_not_count_as_healthy(clie
     db = SessionLocal()
     try:
         chunk = db.query(Chunk).first()
+        # FK enforcement would otherwise reject this -- there's no real
+        # deregistration path, so this is the only way to simulate it.
+        db.execute(text("PRAGMA foreign_keys=OFF"))
         db.add(ChunkPlacement(chunk_id=chunk.id, node_id=99999))  # no such node
         db.commit()
+        db.execute(text("PRAGMA foreign_keys=ON"))
     finally:
         db.close()
 

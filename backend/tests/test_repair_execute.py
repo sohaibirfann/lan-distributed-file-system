@@ -501,14 +501,29 @@ def test_two_concurrent_repair_cycles_targeting_the_same_node_do_not_double_inse
 
     register(client)
     login(client)
-    register_node(client, address="source:9000")
+    source = register_node(client, address="source:9000").json()
     target = register_node(client, address="target:9000").json()
+
+    data = b"real chunk bytes"
+    chunk_hash = chunk_id_for(data)
+    file_id = client.post(
+        "/files",
+        json={
+            "name": "f.bin",
+            "size_bytes": len(data),
+            "chunks": [
+                {
+                    "sequence_index": 0,
+                    "hash": chunk_hash,
+                    "size_bytes": len(data),
+                    "node_ids": [source["id"]],
+                }
+            ],
+        },
+    ).json()["id"]
 
     with ExitStack() as stack:
         fake_target = spawn_fake_node(stack, tmp_path, "target:9000", monkeypatch)
-
-        data = b"real chunk bytes"
-        chunk_hash = chunk_id_for(data)
 
         class FakeSourceClient:
             def get(self, url, **kwargs):
@@ -523,10 +538,12 @@ def test_two_concurrent_repair_cycles_targeting_the_same_node_do_not_double_inse
 
         db = SessionLocal()
         try:
-            source_id = db.query(Node).filter_by(address="source:9000").first().id
+            from coordinator.models import Chunk
+
+            chunk_id = db.query(Chunk).filter_by(file_id=file_id).first().id
             plan = RepairPlanOut(
-                chunk_id=1, file_id=1, sequence_index=0, hash=chunk_hash,
-                source_node_id=source_id, target_node_ids=[target["id"]],
+                chunk_id=chunk_id, file_id=file_id, sequence_index=0, hash=chunk_hash,
+                source_node_id=source["id"], target_node_ids=[target["id"]],
             )
             client_factory = lambda address: FakeSourceClient()
 
@@ -536,7 +553,7 @@ def test_two_concurrent_repair_cycles_targeting_the_same_node_do_not_double_inse
             assert first.repaired_node_ids == [target["id"]]
             assert second.repaired_node_ids == [target["id"]]  # still reported as repaired
             assert db.query(ChunkPlacement).filter_by(
-                chunk_id=1, node_id=target["id"]
+                chunk_id=chunk_id, node_id=target["id"]
             ).count() == 1
         finally:
             db.close()
