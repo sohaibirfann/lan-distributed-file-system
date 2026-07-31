@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
-import { AuthScreen } from './AuthScreen'
-import { DashboardShell } from './DashboardShell'
+import { AuthScreen } from './pages/AuthScreen'
+import { DashboardShell } from './pages/DashboardShell'
 import { Button } from './components/Button/Button'
-import { logout, me, type Account } from './api'
+import { logout, me, type Account } from './lib/api'
 
 function App() {
   const [account, setAccount] = useState<Account | null>(null)

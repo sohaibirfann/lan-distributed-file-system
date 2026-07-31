@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState, type ChangeEvent } from 'react'
 import { Upload } from 'lucide-react'
-import { Card } from './components/Card/Card'
-import { Button } from './components/Button/Button'
-import { FileRow } from './components/FileRow/FileRow'
-import { TransferProgress } from './components/TransferProgress/TransferProgress'
+import { Card } from '../components/Card/Card'
+import { Button } from '../components/Button/Button'
+import { FileRow } from '../components/FileRow/FileRow'
+import { TransferProgress } from '../components/TransferProgress/TransferProgress'
 import {
   ApiError,
   createFile,
@@ -14,18 +14,18 @@ import {
   reportChunkUnavailable,
   renameFile,
   type FileEntry,
-} from './api'
-import { getCachedFileDetail, invalidateFileDetailCache } from './fileDetailCache'
-import { getDerivedKey } from './namespaceKey'
-import { ChunkUploadError, putChunkToNode, uploadFileChunks, type UploadedChunk } from './upload'
+} from '../lib/api'
+import { getCachedFileDetail, invalidateFileDetailCache } from '../lib/fileDetailCache'
+import { getDerivedKey } from '../lib/namespaceKey'
+import { ChunkUploadError, putChunkToNode, uploadFileChunks, type UploadedChunk } from '../lib/upload'
 import {
   ChunkDownloadError,
   downloadFile,
   fetchChunkFromNode,
   prepareSaveTarget,
   type ChunkLocation,
-} from './download'
-import { DEFAULT_CHUNK_SIZE_BYTES } from './chunking'
+} from '../lib/download'
+import { DEFAULT_CHUNK_SIZE_BYTES } from '../lib/chunking'
 import './FilesPage.css'
 
 interface TransferState {

@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react'
-import { Button } from './components/Button/Button'
-import { TextField } from './components/TextField/TextField'
-import { ApiError, login, register, type Account } from './api'
+import { Button } from '../components/Button/Button'
+import { TextField } from '../components/TextField/TextField'
+import { ApiError, login, register, type Account } from '../lib/api'
 import './AuthScreen.css'
 
 export function AuthScreen({ onAuthenticated }: { onAuthenticated: (account: Account) => void }) {

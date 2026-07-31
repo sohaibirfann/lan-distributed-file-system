@@ -1,6 +1,6 @@
 import { Download, Pencil, Trash2 } from 'lucide-react'
-import type { FileEntry } from '../../api'
-import { formatBytes, formatRelativeTime } from '../../format'
+import type { FileEntry } from '../../lib/api'
+import { formatBytes, formatRelativeTime } from '../../lib/format'
 
 export interface FileRowProps {
   file: FileEntry

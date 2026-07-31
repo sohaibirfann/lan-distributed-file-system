@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react'
 import { LogOut } from 'lucide-react'
-import { Badge, type BadgeTone } from './components/Badge/Badge'
-import { StatTile } from './components/StatTile/StatTile'
-import { Card } from './components/Card/Card'
-import { formatBytes, formatRelativeTime } from './format'
+import { Badge, type BadgeTone } from '../components/Badge/Badge'
+import { StatTile } from '../components/StatTile/StatTile'
+import { Card } from '../components/Card/Card'
+import { formatBytes, formatRelativeTime } from '../lib/format'
 import {
   ApiError,
   drainNode,
@@ -13,7 +13,7 @@ import {
   type ChunkHealth,
   type FileEntry,
   type Node,
-} from './api'
+} from '../lib/api'
 import './OverviewPage.css'
 
 const STATE_TONE: Record<Node['state'], BadgeTone> = {

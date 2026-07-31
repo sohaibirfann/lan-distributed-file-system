@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Bell, Clock, Search, WifiOff } from 'lucide-react'
-import type { Event } from '../../api'
+import type { Event } from '../../lib/api'
 import './TopBar.css'
 
 const CONNECTION_CHECK_INTERVAL_MS = 10_000

@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react'
-import { Sidebar, type SidebarView } from './components/Sidebar/Sidebar'
-import { TopBar } from './components/TopBar/TopBar'
+import { Sidebar, type SidebarView } from '../components/Sidebar/Sidebar'
+import { TopBar } from '../components/TopBar/TopBar'
 import { OverviewPage } from './OverviewPage'
 import { FilesPage } from './FilesPage'
 import { SettingsPage } from './SettingsPage'
-import { getEvents, type Account, type Event } from './api'
+import { getEvents, type Account, type Event } from '../lib/api'
 import './DashboardShell.css'
 
 const TITLES: Record<SidebarView, string> = {
