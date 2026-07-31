@@ -14,7 +14,7 @@ from tests.test_repair_execute import chunk_id_for, spawn_fake_node
 
 
 def test_repair_loop_runs_repeatedly_until_stopped(monkeypatch):
-    import coordinator.replication as app_module
+    import coordinator.repair as app_module
 
     calls = []
     monkeypatch.setattr(app_module, "run_one_repair_cycle", lambda: calls.append(1))
@@ -32,7 +32,7 @@ def test_repair_loop_runs_repeatedly_until_stopped(monkeypatch):
 
 
 def test_repair_loop_survives_a_failed_cycle(monkeypatch):
-    import coordinator.replication as app_module
+    import coordinator.repair as app_module
 
     calls = []
 
@@ -56,7 +56,7 @@ def test_repair_loop_survives_a_failed_cycle(monkeypatch):
 
 
 def test_stopping_waits_for_an_in_flight_cycle_before_returning(monkeypatch):
-    import coordinator.replication as app_module
+    import coordinator.repair as app_module
 
     in_flight = []
 
@@ -121,6 +121,7 @@ def test_run_one_repair_cycle_logs_results(client, tmp_path, monkeypatch, caplog
 
         mark_down("a:9000")
 
+        import coordinator.repair as coordinator_repair_module
         import coordinator.replication as coordinator_app_module
 
         monkeypatch.setattr(
@@ -129,8 +130,8 @@ def test_run_one_repair_cycle_logs_results(client, tmp_path, monkeypatch, caplog
             lambda address: {"a:9000": fake_a, "b:9000": fake_b, "spare:9000": fake_spare}[address],
         )
 
-        with caplog.at_level(logging.INFO, logger="coordinator.replication"):
-            coordinator_app_module.run_one_repair_cycle()
+        with caplog.at_level(logging.INFO, logger="coordinator.repair"):
+            coordinator_repair_module.run_one_repair_cycle()
 
         assert any("repaired onto node" in record.message for record in caplog.records)
 
@@ -169,6 +170,7 @@ def test_run_one_repair_cycle_performs_a_real_repair(client, tmp_path, monkeypat
 
         mark_down("a:9000")
 
+        import coordinator.repair as coordinator_repair_module
         import coordinator.replication as coordinator_app_module
 
         monkeypatch.setattr(
@@ -177,7 +179,7 @@ def test_run_one_repair_cycle_performs_a_real_repair(client, tmp_path, monkeypat
             lambda address: {"a:9000": fake_a, "b:9000": fake_b, "spare:9000": fake_spare}[address],
         )
 
-        results = coordinator_app_module.run_one_repair_cycle()
+        results = coordinator_repair_module.run_one_repair_cycle()
 
         assert len(results) == 1
         assert results[0].repaired_node_ids == [spare["id"]]

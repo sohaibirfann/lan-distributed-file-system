@@ -21,7 +21,7 @@ def test_node_going_down_is_recorded_as_an_event(client):
     login(client)
     register_node(client, address="a:9000")
 
-    import coordinator.replication as coordinator_app_module
+    import coordinator.repair as coordinator_app_module
 
     mark_down("a:9000")
     coordinator_app_module.run_one_repair_cycle()
@@ -37,7 +37,7 @@ def test_node_coming_back_is_recorded_as_an_event_without_waiting_for_repair(cli
     login(client)
     register_node(client, address="a:9000")
 
-    import coordinator.replication as coordinator_app_module
+    import coordinator.repair as coordinator_app_module
 
     mark_down("a:9000")
     coordinator_app_module.run_one_repair_cycle()
@@ -55,7 +55,7 @@ def test_node_state_transition_is_not_re_recorded_once_settled(client):
     login(client)
     register_node(client, address="a:9000")
 
-    import coordinator.replication as coordinator_app_module
+    import coordinator.repair as coordinator_app_module
 
     mark_down("a:9000")
     coordinator_app_module.run_one_repair_cycle()
@@ -103,6 +103,7 @@ def test_repair_action_is_recorded_as_an_event(client, tmp_path, monkeypatch):
 
         mark_down("a:9000")
 
+        import coordinator.repair as coordinator_repair_module
         import coordinator.replication as coordinator_app_module
 
         monkeypatch.setattr(
@@ -111,7 +112,7 @@ def test_repair_action_is_recorded_as_an_event(client, tmp_path, monkeypatch):
             lambda address: {"a:9000": fake_a, "b:9000": fake_b, "spare:9000": fake_spare}[address],
         )
 
-        coordinator_app_module.run_one_repair_cycle()
+        coordinator_repair_module.run_one_repair_cycle()
 
     events = client.get("/events").json()
     repair_events = [e for e in events if e["kind"] == "repair"]
@@ -291,7 +292,7 @@ def test_node_going_down_reports_how_many_chunks_were_placed_on_it(client):
 
     mark_down("n0:9000")
 
-    import coordinator.replication as coordinator_app_module
+    import coordinator.repair as coordinator_app_module
 
     coordinator_app_module.run_one_repair_cycle()
 
@@ -354,7 +355,7 @@ def test_events_have_no_effect_when_nothing_changes(client):
     node_ids = [register_node(client, address=f"n{i}:9000").json()["id"] for i in range(3)]
     client.post("/files", json=make_file_body(chunk_sizes=(100,), node_ids=node_ids))
 
-    import coordinator.replication as coordinator_app_module
+    import coordinator.repair as coordinator_app_module
 
     coordinator_app_module.run_one_repair_cycle()
 

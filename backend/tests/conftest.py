@@ -19,8 +19,10 @@ def client(tmp_path, monkeypatch):
     import coordinator.db as db_module
     import coordinator.events as events_module
     import coordinator.files as files_module
+    import coordinator.gc as gc_module
     import coordinator.models as models_module
     import coordinator.nodes as nodes_module
+    import coordinator.repair as repair_module
     import coordinator.replication as replication_module
     import coordinator.settings as settings_module
 
@@ -30,6 +32,8 @@ def client(tmp_path, monkeypatch):
     importlib.reload(events_module)
     importlib.reload(auth_module)
     importlib.reload(replication_module)
+    importlib.reload(repair_module)
+    importlib.reload(gc_module)
     importlib.reload(nodes_module)
     importlib.reload(files_module)
     importlib.reload(app_module)

@@ -12,13 +12,8 @@ from coordinator.auth import require_session
 from coordinator.db import get_db, SessionLocal
 from coordinator.events import record_event
 from coordinator.models import Account, Chunk, ChunkPlacement, Event, Node
-from coordinator.replication import (
-    _bearer,
-    _compute_repair_plans,
-    _default_node_client,
-    _execute_repair_plans,
-    _record_node_state_transitions,
-)
+from coordinator.repair import _execute_repair_plans, _record_node_state_transitions
+from coordinator.replication import _bearer, _compute_repair_plans, _default_node_client
 from coordinator.schemas import (
     EventOut,
     NodeDrainOut,

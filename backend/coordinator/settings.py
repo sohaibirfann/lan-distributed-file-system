@@ -40,8 +40,6 @@ def seed_settings() -> None:
     db = SessionLocal()
     try:
         if get_setting(db, NAMESPACE_SALT_KEY) is None:
-            import secrets
-
             set_setting(db, NAMESPACE_SALT_KEY, secrets.token_hex(16))
 
         if get_setting(db, NAMESPACE_PASSPHRASE_HASH_KEY) is None:

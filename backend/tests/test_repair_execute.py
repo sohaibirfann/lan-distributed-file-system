@@ -424,7 +424,7 @@ def test_repair_rejects_a_non_positive_concurrency_setting(client, monkeypatch):
     monkeypatch.setenv("REPAIR_CONCURRENCY", "0")
 
     with pytest.raises(RuntimeError, match="REPAIR_CONCURRENCY"):
-        from coordinator.replication import run_one_repair_cycle
+        from coordinator.repair import run_one_repair_cycle
 
         run_one_repair_cycle()
 
@@ -434,7 +434,8 @@ def test_execute_repair_handles_a_source_node_that_no_longer_exists(client):
     # HTTP today — exercised directly at the function level as a defensive
     # guard against a future feature reintroducing the "one bad chunk
     # crashes the whole batch" bug via AttributeError instead of httpx.HTTPError.
-    from coordinator.replication import _default_node_client, _execute_repair
+    from coordinator.repair import _execute_repair
+    from coordinator.replication import _default_node_client
     from coordinator.db import SessionLocal
     from coordinator.schemas import RepairPlanOut
 
@@ -464,7 +465,7 @@ def test_default_node_client_is_reused_per_address():
 
 
 def test_execute_repair_handles_a_target_node_that_no_longer_exists(client):
-    from coordinator.replication import _execute_repair
+    from coordinator.repair import _execute_repair
     from coordinator.db import SessionLocal
     from coordinator.schemas import RepairPlanOut
 
@@ -507,7 +508,7 @@ def test_two_concurrent_repair_cycles_targeting_the_same_node_do_not_double_inse
 ):
     from coordinator.db import SessionLocal
     from coordinator.models import ChunkPlacement, Node
-    from coordinator.replication import _execute_repair
+    from coordinator.repair import _execute_repair
     from coordinator.schemas import RepairPlanOut
 
     register(client)

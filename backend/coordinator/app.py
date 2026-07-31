@@ -14,7 +14,8 @@ from coordinator import auth, files, nodes, replication
 from coordinator.auth import enforce_session
 from coordinator.db import init_db
 from coordinator.discovery import start_mdns_advertisement
-from coordinator.replication import gc_sweep_loop, repair_loop
+from coordinator.gc import gc_sweep_loop
+from coordinator.repair import repair_loop
 from coordinator.settings import (
     _int_from_env,
     load_max_file_size_config,
