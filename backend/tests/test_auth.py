@@ -104,6 +104,17 @@ def test_login_rejects_unknown_username(client):
     assert response.status_code == 401
 
 
+def test_login_is_rate_limited_after_too_many_attempts(client):
+    register(client)
+
+    for _ in range(5):
+        client.post("/login", json={"username": "alice", "password": "wrong"})
+
+    response = client.post("/login", json={"username": "alice", "password": "hunter22"})
+
+    assert response.status_code == 429
+
+
 def test_logout_clears_the_session_cookie(client):
     register(client)
     assert client.get("/me").status_code == 200

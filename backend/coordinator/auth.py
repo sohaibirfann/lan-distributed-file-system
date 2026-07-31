@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+import threading
+import time
 from datetime import timedelta
 
 import jwt
@@ -34,6 +36,24 @@ SESSION_LIFETIME = timedelta(days=int(os.environ.get("SESSION_LIFETIME_DAYS", "7
 PUBLIC_PATHS = frozenset({"/health", "/register", "/login", "/logout"})
 
 router = APIRouter()
+
+RATE_LIMIT_MAX_ATTEMPTS = 5
+RATE_LIMIT_WINDOW_SECONDS = 60.0
+_rate_limit_attempts: dict[str, list[float]] = {}
+_rate_limit_lock = threading.Lock()
+
+
+def _enforce_rate_limit(request: Request) -> None:
+    key = f"{request.url.path}:{request.client.host if request.client else 'unknown'}"
+    now = time.monotonic()
+    with _rate_limit_lock:
+        attempts = [
+            t for t in _rate_limit_attempts.get(key, []) if now - t < RATE_LIMIT_WINDOW_SECONDS
+        ]
+        if len(attempts) >= RATE_LIMIT_MAX_ATTEMPTS:
+            raise HTTPException(status_code=429, detail="Too many attempts, try again later")
+        attempts.append(now)
+        _rate_limit_attempts[key] = attempts
 
 
 def require_session(request: Request, db: Session = Depends(get_db)) -> Account:
@@ -76,6 +96,7 @@ def issue_session_cookie(response: Response, request: Request, account: Account,
 def register(
     body: RegisterRequest, request: Request, response: Response, db: Session = Depends(get_db)
 ) -> Account:
+    _enforce_rate_limit(request)
     namespace_passphrase_hash = get_required_setting(db, NAMESPACE_PASSPHRASE_HASH_KEY)
     if not verify_namespace_passphrase(body.namespace_passphrase, namespace_passphrase_hash):
         raise HTTPException(status_code=401, detail="Invalid namespace passphrase")
@@ -97,6 +118,7 @@ def register(
 
 @router.post("/login", response_model=AccountOut)
 def login(body: LoginRequest, request: Request, response: Response, db: Session = Depends(get_db)) -> Account:
+    _enforce_rate_limit(request)
     account = db.query(Account).filter(Account.username == body.username).first()
     invalid_credentials = HTTPException(status_code=401, detail="Invalid username or password")
 
