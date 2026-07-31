@@ -1,20 +1,21 @@
 import { useEffect, useRef, useState, type ChangeEvent } from 'react'
-import { Download, Pencil, Trash2, Upload } from 'lucide-react'
+import { Upload } from 'lucide-react'
 import { Card } from './components/Card/Card'
 import { Button } from './components/Button/Button'
+import { FileRow } from './components/FileRow/FileRow'
+import { TransferProgress } from './components/TransferProgress/TransferProgress'
 import {
   ApiError,
   createFile,
   deleteFile,
-  getFileDetail,
   getFiles,
   getPlacement,
   getReplicationConfig,
   reportChunkUnavailable,
   renameFile,
-  type FileDetail,
   type FileEntry,
 } from './api'
+import { getCachedFileDetail, invalidateFileDetailCache } from './fileDetailCache'
 import { getDerivedKey } from './namespaceKey'
 import { ChunkUploadError, putChunkToNode, uploadFileChunks, type UploadedChunk } from './upload'
 import {
@@ -25,7 +26,6 @@ import {
   type ChunkLocation,
 } from './download'
 import { DEFAULT_CHUNK_SIZE_BYTES } from './chunking'
-import { formatBytes, formatRelativeTime } from './format'
 import './FilesPage.css'
 
 interface TransferState {
@@ -33,22 +33,6 @@ interface TransferState {
   totalChunks: number
   completedChunks: number
   label: string
-}
-
-const FILE_DETAIL_CACHE_TTL_MS = 60_000
-const fileDetailCache = new Map<number, { detail: FileDetail; cachedAt: number }>()
-
-async function getCachedFileDetail(id: number): Promise<FileDetail> {
-  const cached = fileDetailCache.get(id)
-  if (cached && Date.now() - cached.cachedAt < FILE_DETAIL_CACHE_TTL_MS) return cached.detail
-  const detail = await getFileDetail(id)
-  fileDetailCache.set(id, { detail, cachedAt: Date.now() })
-  return detail
-}
-
-// A deleted file's id can be reused, so its cache entry must not survive.
-function invalidateFileDetailCache(id: number) {
-  fileDetailCache.delete(id)
 }
 
 export function FilesPage() {
@@ -264,82 +248,29 @@ export function FilesPage() {
         </Button>
       </div>
       {transferState && (
-        <div className="files-page__transfer-progress">
-          <div className="files-page__transfer-progress-header">
-            <span>{transferState.label}</span>
-            <span>
-              {transferState.completedChunks}/{transferState.totalChunks} chunks
-            </span>
-          </div>
-          <div className="files-page__transfer-progress-bar">
-            <div
-              className="files-page__transfer-progress-fill"
-              style={{
-                width: `${Math.round((transferState.completedChunks / transferState.totalChunks) * 100)}%`,
-              }}
-            />
-          </div>
-        </div>
+        <TransferProgress
+          label={transferState.label}
+          completedChunks={transferState.completedChunks}
+          totalChunks={transferState.totalChunks}
+        />
       )}
       {error && <p className="files-page__error">{error}</p>}
       {loading && <p className="ds-empty">Loading…</p>}
       {!loading && !error && files.length === 0 && <p className="ds-empty">No files uploaded yet.</p>}
       {files.map((file) => (
-        <div key={file.id} className="files-page__row">
-          <div className="files-page__row-main">
-            {editingId === file.id ? (
-              <input
-                className="files-page__rename-input"
-                value={editingName}
-                autoFocus
-                onChange={(e) => setEditingName(e.target.value)}
-                onBlur={() => commitRename(file.id)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') commitRename(file.id)
-                  if (e.key === 'Escape') setEditingId(null)
-                }}
-              />
-            ) : (
-              <span className="files-page__row-title">{file.name}</span>
-            )}
-          </div>
-          <div className="ds-row-meta">
-            <span>{formatBytes(file.size_bytes)}</span>
-            <span>
-              {file.chunk_count} {file.chunk_count === 1 ? 'chunk' : 'chunks'}
-            </span>
-            <span>uploaded {formatRelativeTime(file.created_at)}</span>
-          </div>
-          <div className="files-page__row-actions">
-            <button
-              type="button"
-              className="files-page__icon-button"
-              aria-label={`Download ${file.name}`}
-              disabled={transferState !== null}
-              onClick={() => handleDownload(file)}
-            >
-              <Download size={14} />
-            </button>
-            <button
-              type="button"
-              className="files-page__icon-button"
-              aria-label={`Rename ${file.name}`}
-              disabled={transferState !== null}
-              onClick={() => startEditing(file)}
-            >
-              <Pencil size={14} />
-            </button>
-            <button
-              type="button"
-              className="files-page__icon-button"
-              aria-label={`Delete ${file.name}`}
-              disabled={transferState !== null}
-              onClick={() => handleDelete(file)}
-            >
-              <Trash2 size={14} />
-            </button>
-          </div>
-        </div>
+        <FileRow
+          key={file.id}
+          file={file}
+          editing={editingId === file.id}
+          editingName={editingName}
+          transferInProgress={transferState !== null}
+          onEditingNameChange={setEditingName}
+          onCommitRename={() => commitRename(file.id)}
+          onCancelEdit={() => setEditingId(null)}
+          onStartEditing={() => startEditing(file)}
+          onDownload={() => handleDownload(file)}
+          onDelete={() => handleDelete(file)}
+        />
       ))}
     </Card>
   )
