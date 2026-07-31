@@ -63,6 +63,7 @@ export function FilesPage() {
   useEffect(() => {
     getFiles()
       .then(setFiles)
+      .catch(() => setError('could not load files'))
       .finally(() => setLoading(false))
   }, [])
 
@@ -274,7 +275,7 @@ export function FilesPage() {
       )}
       {error && <p className="files-page__error">{error}</p>}
       {loading && <p className="ds-empty">Loading…</p>}
-      {!loading && files.length === 0 && <p className="ds-empty">No files uploaded yet.</p>}
+      {!loading && !error && files.length === 0 && <p className="ds-empty">No files uploaded yet.</p>}
       {files.map((file) => (
         <div key={file.id} className="files-page__row">
           <div className="files-page__row-main">

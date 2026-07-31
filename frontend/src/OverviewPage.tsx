@@ -42,6 +42,7 @@ export function OverviewPage({ events }: OverviewPageProps) {
   const [files, setFiles] = useState<FileEntry[]>([])
   const [health, setHealth] = useState<ChunkHealth[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [drainingAddresses, setDrainingAddresses] = useState<Set<string>>(new Set())
 
@@ -52,6 +53,7 @@ export function OverviewPage({ events }: OverviewPageProps) {
         setFiles(f)
         setHealth(h)
       })
+      .catch(() => setLoadError(true))
       .finally(() => setLoading(false))
   }, [])
 
@@ -121,7 +123,8 @@ export function OverviewPage({ events }: OverviewPageProps) {
       <div className="overview-page__panels">
         <Card title="Nodes">
           {loading && <p className="ds-empty">Loading…</p>}
-          {!loading && nodes.length === 0 && <p className="ds-empty">No nodes registered yet.</p>}
+          {!loading && !loadError && nodes.length === 0 && <p className="ds-empty">No nodes registered yet.</p>}
+          {loadError && <p className="ds-empty">Could not load nodes.</p>}
           {error && <p className="overview-page__error">{error}</p>}
           {nodes.map((node) => (
             <div key={node.id} className="overview-page__row">
@@ -165,9 +168,10 @@ export function OverviewPage({ events }: OverviewPageProps) {
         </Card>
 
         <Card title="Replication Health">
-          {!loading && health.length === 0 && (
+          {!loading && !loadError && health.length === 0 && (
             <p className="ds-empty">All chunks are at full replication factor.</p>
           )}
+          {loadError && <p className="ds-empty">Could not load replication health.</p>}
           {health.map((chunk) => (
             <div key={chunk.chunk_id} className="overview-page__row">
               <div className="overview-page__row-main">

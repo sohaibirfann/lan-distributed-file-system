@@ -85,8 +85,8 @@ def require_owner_auth(
 ) -> None:
     config = request.app.state.config
     valid = secrets.compare_digest(
-        credentials.username, config.owner_username
-    ) and secrets.compare_digest(credentials.password, config.owner_password)
+        credentials.username.encode(), config.owner_username.encode()
+    ) and secrets.compare_digest(credentials.password.encode(), config.owner_password.encode())
     if not valid:
         raise HTTPException(
             status_code=401, detail="Invalid credentials", headers={"WWW-Authenticate": "Basic"}

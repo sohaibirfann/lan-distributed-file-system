@@ -24,7 +24,7 @@ export function DashboardShell({
   const [events, setEvents] = useState<Event[]>([])
 
   useEffect(() => {
-    getEvents().then(setEvents)
+    getEvents().then(setEvents).catch(() => {})
   }, [])
 
   return (
