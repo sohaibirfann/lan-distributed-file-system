@@ -13,6 +13,7 @@ no cloud service, and no server, ever holds a file's plaintext or the encryption
 - [Configuration reference](#configuration-reference)
 - [Running the tests](#running-the-tests)
 - [Tech stack](#tech-stack)
+- [Future improvements](#future-improvements)
 
 ## How it works
 
@@ -226,3 +227,29 @@ cd frontend && npm test && npx tsc -b --noEmit
 
 Python, FastAPI, SQLAlchemy, Argon2id, PyJWT, zeroconf (mDNS) on the backend; React,
 TypeScript, Vite, libsodium-wrappers on the frontend.
+
+## Future improvements
+
+This was scoped deliberately tight for v1, so plenty of good ideas got left on the table.
+Roughly in order of how much they'd actually matter:
+
+The coordinator is a single point of failure today — not just for the dashboard, but for
+every upload and download, since both need a live round trip to it for placement/metadata.
+Making that redundant (Raft-replicated metadata, or similar) would be the biggest
+structural improvement, and the one I'd tackle first given more time.
+
+A few reliability gaps follow from that same "trust the happy path" starting point:
+uploads can't resume after a dropped connection, nothing periodically re-checks that a
+node still actually has the bytes it said it stored, and nothing scrubs chunks at rest
+to catch quiet disk corruption before someone tries to read a broken file. None of these
+break the demo — they're the kind of thing that bites you months in, on real hardware.
+
+Security-wise, the obvious next step is TLS between the browser and the coordinator —
+right now it's plain HTTP, fine for a trusted LAN, not fine beyond that. Passphrase
+rotation and per-file keys (for actually sharing a subset of files instead of everyone
+seeing everything) would be the next layer after that.
+
+The rest is more about flexibility than robustness: per-account storage quotas instead
+of one global file-size cap, erasure coding as a cheaper alternative to full replication,
+real conflict resolution instead of last-write-wins, and letting one coordinator host
+more than one namespace instead of one shared trust boundary per deployment.
